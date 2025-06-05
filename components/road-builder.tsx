@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Toggle } from "@/components/ui/toggle"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
-import { type Road, RoadType } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType } from "@/lib/road-types"
 import {
   SplineIcon as BezierCurve,
   PenLineIcon as StraightLine,
@@ -18,20 +18,28 @@ import {
   ZoomIn,
   ZoomOut,
   MousePointer,
+  Check,
+  X,
 } from "lucide-react"
 
 export default function RoadBuilder() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [nodes, setNodes] = useState<{ x: number; y: number }[]>([])
+  const [nodes, setNodes] = useState<Node[]>([])
   const [roads, setRoads] = useState<Road[]>([])
+  const [buildSession, setBuildSession] = useState<BuildSession>({
+    nodes: [],
+    isActive: false,
+    roadType: RoadType.STRAIGHT,
+    roadWidth: 10,
+  })
   const [curvedRoads, setCurvedRoads] = useState(false)
-  const [snapEnabled, setSnapEnabled] = useState(false)
+  const [snapEnabled, setSnapEnabled] = useState(true)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Updated states - added move and circle modes
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "move">("nodes")
+  // Updated states
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "move" | "select-node">("nodes")
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentLine, setCurrentLine] = useState<{
     start: { x: number; y: number }
@@ -40,6 +48,7 @@ export default function RoadBuilder() {
   const [showRoadLengths, setShowRoadLengths] = useState(false)
   const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
   const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
   // Pan functionality
   const [isPanning, setIsPanning] = useState(false)
@@ -50,15 +59,22 @@ export default function RoadBuilder() {
   const [zoom, setZoom] = useState(1)
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null)
 
-  // Road dragging (only in move mode)
+  // Road dragging
   const [isDraggingRoad, setIsDraggingRoad] = useState(false)
   const [draggedRoadId, setDraggedRoadId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+
+  // Node dragging
+  const [isDraggingNode, setIsDraggingNode] = useState(false)
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
 
   // Circle drawing
   const [isDrawingCircle, setIsDrawingCircle] = useState(false)
   const [circleCenter, setCircleCenter] = useState<{ x: number; y: number } | null>(null)
   const [circleRadius, setCircleRadius] = useState(0)
+
+  // Snap preview
+  const [snapPreview, setSnapPreview] = useState<{ x: number; y: number } | null>(null)
 
   // Draw the canvas
   useEffect(() => {
@@ -88,6 +104,17 @@ export default function RoadBuilder() {
       }
     })
 
+    // Draw nodes
+    nodes.forEach((node) => {
+      const isSelected = node.id === selectedNodeId
+      drawNode(ctx, node, isSelected)
+    })
+
+    // Draw build session
+    if (buildSession.isActive) {
+      drawBuildSession(ctx)
+    }
+
     // Draw current line being drawn
     if (currentLine) {
       const tempRoad: Road = {
@@ -104,48 +131,30 @@ export default function RoadBuilder() {
       drawCirclePreview(ctx, circleCenter, circleRadius)
     }
 
-    // Draw nodes and preview line in node mode
-    if (drawingMode === "nodes") {
-      nodes.forEach((node, index) => {
-        drawNode(ctx, node, index)
-      })
-
-      // Draw preview road from last node to mouse position
-      if (nodes.length > 0 && mousePosition) {
-        const lastNode = nodes[nodes.length - 1]
-
-        // Create a temporary road object for preview
-        const previewRoad: Road = {
-          start: lastNode,
-          end: mousePosition,
-          type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
-          width: defaultRoadWidth,
-          id: "preview",
-        }
-
-        // Draw the preview road with reduced opacity
-        ctx.globalAlpha = 0.6
-        drawRoad(ctx, previewRoad, false)
-        ctx.globalAlpha = 1
-      }
+    // Draw snap preview
+    if (snapPreview) {
+      drawSnapPreview(ctx, snapPreview)
     }
 
     ctx.restore()
   }, [
     nodes,
     roads,
+    buildSession,
     defaultRoadWidth,
     currentLine,
     showRoadLengths,
     drawingMode,
     curvedRoads,
     selectedRoadId,
+    selectedNodeId,
     panOffset,
     zoom,
     mousePosition,
     isDrawingCircle,
     circleCenter,
     circleRadius,
+    snapPreview,
   ])
 
   // Handle window resize
@@ -172,19 +181,32 @@ export default function RoadBuilder() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "c" || e.key === "C") {
         setCurvedRoads((prev) => !prev)
+        if (buildSession.isActive) {
+          setBuildSession((prev) => ({ ...prev, roadType: !curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT }))
+        }
       } else if (e.key === "Shift") {
         setSnapEnabled(true)
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        removeLastElement()
+        if (selectedNodeId) {
+          deleteNode(selectedNodeId)
+        } else if (selectedRoadId) {
+          deleteRoad(selectedRoadId)
+        } else {
+          removeLastElement()
+        }
       } else if (e.key === "Escape") {
-        // Finish current drawing and reset
-        setNodes([])
+        cancelBuildSession()
+        setSelectedRoadId(null)
+        setSelectedNodeId(null)
         setCurrentLine(null)
         setIsDrawing(false)
         setIsDrawingCircle(false)
         setCircleCenter(null)
         setCircleRadius(0)
-        setSelectedRoadId(null)
+      } else if (e.key === "Enter" || e.key === " ") {
+        if (buildSession.isActive && buildSession.nodes.length >= 2) {
+          completeBuildSession()
+        }
       } else if (e.key === "+" || e.key === "=") {
         zoomIn()
       } else if (e.key === "-") {
@@ -205,7 +227,7 @@ export default function RoadBuilder() {
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [])
+  }, [buildSession, selectedNodeId, selectedRoadId, curvedRoads])
 
   // Calculate road length in meters
   const calculateRoadLength = (road: Road): number => {
@@ -216,7 +238,6 @@ export default function RoadBuilder() {
       const dy = road.end.y - road.start.y
       pixelLength = Math.sqrt(dx * dx + dy * dy)
     } else if (road.type === RoadType.CURVED) {
-      // Approximate curved road length
       const controlPointX = (road.start.x + road.end.x) / 2
       const controlPointY = (road.start.y + road.end.y) / 2
       const offsetX = (road.end.y - road.start.y) * 0.5
@@ -227,7 +248,6 @@ export default function RoadBuilder() {
       const d2 = Math.sqrt((road.end.x - cp.x) ** 2 + (road.end.y - cp.y) ** 2)
       pixelLength = d1 + d2
     } else {
-      // Circle road length
       const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
       pixelLength = 2 * Math.PI * radius
     }
@@ -235,43 +255,44 @@ export default function RoadBuilder() {
     return pixelLength * scaleMetersPerPixel
   }
 
-  // Draw circle preview
-  const drawCirclePreview = (ctx: CanvasRenderingContext2D, center: { x: number; y: number }, radius: number) => {
-    ctx.strokeStyle = "#94a3b8"
-    ctx.lineWidth = defaultRoadWidth
-    ctx.setLineDash([5, 5])
-    ctx.beginPath()
-    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.setLineDash([])
+  // Find nearby node for snapping
+  const findNearbyNode = (x: number, y: number, excludeIds: string[] = []): Node | null => {
+    for (const node of nodes) {
+      if (excludeIds.includes(node.id)) continue
+      const distance = Math.sqrt((node.x - x) ** 2 + (node.y - y) ** 2)
+      if (distance <= snapDistance) {
+        return node
+      }
+    }
+    return null
   }
 
-  // Draw road length
-  const drawRoadLength = (ctx: CanvasRenderingContext2D, road: Road) => {
-    const length = calculateRoadLength(road)
-    let midX: number, midY: number
+  // Find nearby road for snapping
+  const findNearbyRoadPoint = (x: number, y: number): { x: number; y: number; roadId: string } | null => {
+    for (const road of roads) {
+      if (road.type === RoadType.STRAIGHT) {
+        const distance = getDistanceToRoad(road, x, y)
+        if (distance <= snapDistance) {
+          // Find the closest point on the road
+          const A = x - road.start.x
+          const B = y - road.start.y
+          const C = road.end.x - road.start.x
+          const D = road.end.y - road.start.y
 
-    if (road.type === RoadType.CIRCLE) {
-      midX = road.start.x
-      midY = road.start.y - Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2) / 2
-    } else {
-      midX = (road.start.x + road.end.x) / 2
-      midY = (road.start.y + road.end.y) / 2
+          const dot = A * C + B * D
+          const lenSq = C * C + D * D
+          let param = -1
+          if (lenSq !== 0) param = dot / lenSq
+
+          param = Math.max(0, Math.min(1, param))
+          const closestX = road.start.x + param * C
+          const closestY = road.start.y + param * D
+
+          return { x: closestX, y: closestY, roadId: road.id }
+        }
+      }
     }
-
-    // Draw background for text
-    ctx.fillStyle = "rgba(255, 255, 255, 0.9)"
-    ctx.strokeStyle = "#e5e7eb"
-    ctx.lineWidth = 1
-    ctx.fillRect(midX - 25, midY - 10, 50, 20)
-    ctx.strokeRect(midX - 25, midY - 10, 50, 20)
-
-    // Draw text
-    ctx.fillStyle = "#374151"
-    ctx.font = "11px Arial"
-    ctx.textAlign = "center"
-    ctx.textBaseline = "middle"
-    ctx.fillText(`${length.toFixed(1)}m`, midX, midY)
+    return null
   }
 
   // Convert screen coordinates to world coordinates
@@ -280,22 +301,54 @@ export default function RoadBuilder() {
     if (!canvas) return { x: 0, y: 0 }
 
     const rect = canvas.getBoundingClientRect()
-    let x = (e.clientX - rect.left - panOffset.x) / zoom
-    let y = (e.clientY - rect.top - panOffset.y) / zoom
-
-    if (snapEnabled) {
-      const snapped = getSnappedPosition(x, y)
-      x = snapped.x
-      y = snapped.y
-    }
+    const x = (e.clientX - rect.left - panOffset.x) / zoom
+    const y = (e.clientY - rect.top - panOffset.y) / zoom
 
     return { x, y }
   }
 
-  // Find road at position (only for move mode)
-  const findRoadAtPosition = (x: number, y: number): Road | null => {
-    if (drawingMode !== "move") return null
+  // Get snapped position with preview
+  const getSnappedPosition = (x: number, y: number, excludeNodeIds: string[] = []) => {
+    // First try to snap to existing nodes
+    const nearbyNode = findNearbyNode(x, y, excludeNodeIds)
+    if (nearbyNode) {
+      setSnapPreview({ x: nearbyNode.x, y: nearbyNode.y })
+      return { x: nearbyNode.x, y: nearbyNode.y, snappedToNode: nearbyNode }
+    }
 
+    // Then try to snap to roads
+    const nearbyRoadPoint = findNearbyRoadPoint(x, y)
+    if (nearbyRoadPoint) {
+      setSnapPreview({ x: nearbyRoadPoint.x, y: nearbyRoadPoint.y })
+      return { x: nearbyRoadPoint.x, y: nearbyRoadPoint.y, snappedToRoad: nearbyRoadPoint.roadId }
+    }
+
+    // Grid snapping
+    if (snapEnabled) {
+      const gridSize = snapDistance
+      const snappedX = Math.round(x / gridSize) * gridSize
+      const snappedY = Math.round(y / gridSize) * gridSize
+      setSnapPreview(null)
+      return { x: snappedX, y: snappedY }
+    }
+
+    setSnapPreview(null)
+    return { x, y }
+  }
+
+  // Find node at position
+  const findNodeAtPosition = (x: number, y: number): Node | null => {
+    for (const node of nodes) {
+      const distance = Math.sqrt((node.x - x) ** 2 + (node.y - y) ** 2)
+      if (distance <= 10) {
+        return node
+      }
+    }
+    return null
+  }
+
+  // Find road at position
+  const findRoadAtPosition = (x: number, y: number): Road | null => {
     for (const road of roads) {
       const distance = getDistanceToRoad(road, x, y)
       if (distance < road.width / 2 + 5) {
@@ -308,7 +361,6 @@ export default function RoadBuilder() {
   // Get distance from point to road
   const getDistanceToRoad = (road: Road, x: number, y: number) => {
     if (road.type === RoadType.STRAIGHT) {
-      // Distance from point to line segment
       const A = x - road.start.x
       const B = y - road.start.y
       const C = road.end.x - road.start.x
@@ -335,20 +387,216 @@ export default function RoadBuilder() {
       const dy = y - yy
       return Math.sqrt(dx * dx + dy * dy)
     } else if (road.type === RoadType.CIRCLE) {
-      // Distance from point to circle
       const centerX = road.start.x
       const centerY = road.start.y
       const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
       const distanceToCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2)
       return Math.abs(distanceToCenter - radius)
     } else {
-      // Simplified distance for curved roads
       const midX = (road.start.x + road.end.x) / 2
       const midY = (road.start.y + road.end.y) / 2
       const dx = x - midX
       const dy = y - midY
       return Math.sqrt(dx * dx + dy * dy)
     }
+  }
+
+  // Start build session
+  const startBuildSession = () => {
+    setBuildSession({
+      nodes: [],
+      isActive: true,
+      roadType: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
+      roadWidth: defaultRoadWidth,
+    })
+  }
+
+  // Add node to build session
+  const addNodeToBuildSession = (x: number, y: number, snappedNode?: Node, snappedRoadId?: string) => {
+    let nodeId: string
+    let finalX = x
+    let finalY = y
+
+    if (snappedNode) {
+      // Use existing node
+      nodeId = snappedNode.id
+      finalX = snappedNode.x
+      finalY = snappedNode.y
+    } else {
+      // Create new node
+      nodeId = `node-${Date.now()}-${Math.random()}`
+      const newNode: Node = {
+        id: nodeId,
+        x: finalX,
+        y: finalY,
+        connectedRoadIds: [],
+      }
+
+      // If snapped to a road, split the road
+      if (snappedRoadId) {
+        splitRoadAtPoint(snappedRoadId, finalX, finalY, nodeId)
+      }
+
+      setNodes((prev) => [...prev, newNode])
+    }
+
+    setBuildSession((prev) => ({
+      ...prev,
+      nodes: [...prev.nodes, { id: nodeId, x: finalX, y: finalY, connectedRoadIds: [] }],
+    }))
+  }
+
+  // Split road at point
+  const splitRoadAtPoint = (roadId: string, x: number, y: number, newNodeId: string) => {
+    const road = roads.find((r) => r.id === roadId)
+    if (!road) return
+
+    // Create two new roads
+    const road1: Road = {
+      ...road,
+      id: `road-${Date.now()}-${Math.random()}-1`,
+      end: { x, y },
+      endNodeId: newNodeId,
+    }
+
+    const road2: Road = {
+      ...road,
+      id: `road-${Date.now()}-${Math.random()}-2`,
+      start: { x, y },
+      startNodeId: newNodeId,
+    }
+
+    // Update roads
+    setRoads((prev) => prev.filter((r) => r.id !== roadId).concat([road1, road2]))
+
+    // Update node connections
+    setNodes((prev) =>
+      prev.map((node) => {
+        if (node.id === newNodeId) {
+          return { ...node, connectedRoadIds: [road1.id, road2.id] }
+        }
+        if (node.connectedRoadIds.includes(roadId)) {
+          const updatedRoadIds = node.connectedRoadIds.filter((id) => id !== roadId)
+          if (node.id === road.startNodeId) {
+            updatedRoadIds.push(road1.id)
+          } else if (node.id === road.endNodeId) {
+            updatedRoadIds.push(road2.id)
+          }
+          return { ...node, connectedRoadIds: updatedRoadIds }
+        }
+        return node
+      }),
+    )
+  }
+
+  // Complete build session
+  const completeBuildSession = () => {
+    if (buildSession.nodes.length < 2) return
+
+    // Create roads between consecutive nodes
+    for (let i = 0; i < buildSession.nodes.length - 1; i++) {
+      const startNode = buildSession.nodes[i]
+      const endNode = buildSession.nodes[i + 1]
+
+      const roadId = `road-${Date.now()}-${Math.random()}-${i}`
+      const newRoad: Road = {
+        start: { x: startNode.x, y: startNode.y },
+        end: { x: endNode.x, y: endNode.y },
+        startNodeId: startNode.id,
+        endNodeId: endNode.id,
+        type: buildSession.roadType,
+        width: buildSession.roadWidth,
+        id: roadId,
+      }
+
+      setRoads((prev) => [...prev, newRoad])
+
+      // Update node connections
+      setNodes((prev) =>
+        prev.map((node) => {
+          if (node.id === startNode.id || node.id === endNode.id) {
+            return {
+              ...node,
+              connectedRoadIds: [...node.connectedRoadIds, roadId],
+            }
+          }
+          return node
+        }),
+      )
+    }
+
+    setBuildSession({ nodes: [], isActive: false, roadType: RoadType.STRAIGHT, roadWidth: 10 })
+  }
+
+  // Cancel build session
+  const cancelBuildSession = () => {
+    // Remove any nodes that were created during this session and aren't connected to existing roads
+    const sessionNodeIds = buildSession.nodes.map((n) => n.id)
+    setNodes((prev) =>
+      prev.filter((node) => {
+        if (sessionNodeIds.includes(node.id)) {
+          return node.connectedRoadIds.some((roadId) => roads.some((road) => road.id === roadId))
+        }
+        return true
+      }),
+    )
+
+    setBuildSession({ nodes: [], isActive: false, roadType: RoadType.STRAIGHT, roadWidth: 10 })
+  }
+
+  // Move node and update connected roads
+  const moveNode = (nodeId: string, newX: number, newY: number) => {
+    setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, x: newX, y: newY } : node)))
+
+    // Update all roads connected to this node
+    setRoads((prev) =>
+      prev.map((road) => {
+        if (road.startNodeId === nodeId) {
+          return { ...road, start: { x: newX, y: newY } }
+        }
+        if (road.endNodeId === nodeId) {
+          return { ...road, end: { x: newX, y: newY } }
+        }
+        return road
+      }),
+    )
+  }
+
+  // Delete node and connected roads
+  const deleteNode = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node) return
+
+    // Remove connected roads
+    setRoads((prev) => prev.filter((road) => !node.connectedRoadIds.includes(road.id)))
+
+    // Remove node
+    setNodes((prev) => prev.filter((n) => n.id !== nodeId))
+
+    // Update other nodes' connections
+    setNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        connectedRoadIds: n.connectedRoadIds.filter((roadId) => !node.connectedRoadIds.includes(roadId)),
+      })),
+    )
+
+    setSelectedNodeId(null)
+  }
+
+  // Delete road
+  const deleteRoad = (roadId: string) => {
+    setRoads((prev) => prev.filter((road) => road.id !== roadId))
+
+    // Update node connections
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        connectedRoadIds: node.connectedRoadIds.filter((id) => id !== roadId),
+      })),
+    )
+
+    setSelectedRoadId(null)
   }
 
   // Handle mouse down
@@ -359,7 +607,6 @@ export default function RoadBuilder() {
       setIsPanning(true)
       setLastPanPoint({ x: e.clientX, y: e.clientY })
     } else if (drawingMode === "move") {
-      // Check if clicking on existing road to drag it
       const clickedRoad = findRoadAtPosition(coords.x, coords.y)
       if (clickedRoad) {
         setIsDraggingRoad(true)
@@ -374,50 +621,29 @@ export default function RoadBuilder() {
           y: coords.y - roadCenter.y,
         })
       }
-    } else if (drawingMode === "nodes") {
-      // Only add nodes in node mode - no road dragging
-      const newNode = coords
-      const newNodes = [...nodes, newNode]
-      setNodes(newNodes)
-
-      // Create road if we have at least 2 nodes
-      if (newNodes.length > 1) {
-        const prevNode = newNodes[newNodes.length - 2]
-        const newRoad: Road = {
-          start: prevNode,
-          end: newNode,
-          type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
-          width: defaultRoadWidth,
-          id: `road-${Date.now()}-${Math.random()}`,
-        }
-        setRoads([...roads, newRoad])
+    } else if (drawingMode === "select-node") {
+      const clickedNode = findNodeAtPosition(coords.x, coords.y)
+      if (clickedNode) {
+        setSelectedNodeId(clickedNode.id)
+        setIsDraggingNode(true)
+        setDraggedNodeId(clickedNode.id)
+      } else {
+        setSelectedNodeId(null)
       }
+    } else if (drawingMode === "nodes") {
+      if (!buildSession.isActive) {
+        startBuildSession()
+      }
+
+      const snappedPos = getSnappedPosition(
+        coords.x,
+        coords.y,
+        buildSession.nodes.map((n) => n.id),
+      )
+      addNodeToBuildSession(snappedPos.x, snappedPos.y, snappedPos.snappedToNode, snappedPos.snappedToRoad)
     } else if (drawingMode === "lines") {
-      // Start drawing a line
       setIsDrawing(true)
       setCurrentLine({ start: coords, end: coords })
-    } else if (drawingMode === "circle") {
-      if (!isDrawingCircle) {
-        // Start drawing circle - set center
-        setIsDrawingCircle(true)
-        setCircleCenter(coords)
-        setCircleRadius(0)
-      } else {
-        // Finish drawing circle
-        if (circleCenter && circleRadius > 10) {
-          const newRoad: Road = {
-            start: circleCenter,
-            end: { x: circleCenter.x + circleRadius, y: circleCenter.y },
-            type: RoadType.CIRCLE,
-            width: defaultRoadWidth,
-            id: `road-${Date.now()}-${Math.random()}`,
-          }
-          setRoads([...roads, newRoad])
-        }
-        setIsDrawingCircle(false)
-        setCircleCenter(null)
-        setCircleRadius(0)
-      }
     }
   }
 
@@ -425,15 +651,16 @@ export default function RoadBuilder() {
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
     const coords = getWorldCoordinates(e)
 
-    // Update mouse position for preview line
-    if (drawingMode === "nodes") {
+    if (drawingMode === "nodes" && buildSession.isActive) {
+      const snappedPos = getSnappedPosition(
+        coords.x,
+        coords.y,
+        buildSession.nodes.map((n) => n.id),
+      )
+      setMousePosition({ x: snappedPos.x, y: snappedPos.y })
+    } else {
       setMousePosition(coords)
-    }
-
-    // Update circle radius while drawing
-    if (isDrawingCircle && circleCenter) {
-      const radius = Math.sqrt((coords.x - circleCenter.x) ** 2 + (coords.y - circleCenter.y) ** 2)
-      setCircleRadius(radius)
+      setSnapPreview(null)
     }
 
     if (isPanning && drawingMode === "pan") {
@@ -444,8 +671,10 @@ export default function RoadBuilder() {
         y: prev.y + deltaY,
       }))
       setLastPanPoint({ x: e.clientX, y: e.clientY })
+    } else if (isDraggingNode && draggedNodeId) {
+      const snappedPos = getSnappedPosition(coords.x, coords.y, [draggedNodeId])
+      moveNode(draggedNodeId, snappedPos.x, snappedPos.y)
     } else if (isDraggingRoad && draggedRoadId && drawingMode === "move") {
-      // Drag the selected road
       const road = roads.find((r) => r.id === draggedRoadId)
       if (road) {
         const newCenterX = coords.x - dragOffset.x
@@ -479,8 +708,10 @@ export default function RoadBuilder() {
     } else if (isDraggingRoad) {
       setIsDraggingRoad(false)
       setDraggedRoadId(null)
+    } else if (isDraggingNode) {
+      setIsDraggingNode(false)
+      setDraggedNodeId(null)
     } else if (isDrawing && currentLine && drawingMode === "lines") {
-      // Add the completed road
       const newRoad: Road = {
         start: currentLine.start,
         end: currentLine.end,
@@ -494,13 +725,16 @@ export default function RoadBuilder() {
     setIsDrawing(false)
   }
 
-  // Get snapped position
-  const getSnappedPosition = (x: number, y: number) => {
-    const gridSize = snapDistance
-    return {
-      x: Math.round(x / gridSize) * gridSize,
-      y: Math.round(y / gridSize) * gridSize,
-    }
+  // Handle build completion button click
+  const handleBuildComplete = (e: MouseEvent<HTMLCanvasElement>) => {
+    e.stopPropagation()
+    completeBuildSession()
+  }
+
+  // Handle build cancel button click
+  const handleBuildCancel = (e: MouseEvent<HTMLCanvasElement>) => {
+    e.stopPropagation()
+    cancelBuildSession()
   }
 
   // Zoom functions
@@ -527,7 +761,6 @@ export default function RoadBuilder() {
     const endX = startX + width / zoom + gridSize
     const endY = startY + height / zoom + gridSize
 
-    // Draw vertical lines
     for (let x = startX; x <= endX; x += gridSize) {
       ctx.beginPath()
       ctx.moveTo(x, startY)
@@ -535,7 +768,6 @@ export default function RoadBuilder() {
       ctx.stroke()
     }
 
-    // Draw horizontal lines
     for (let y = startY; y <= endY; y += gridSize) {
       ctx.beginPath()
       ctx.moveTo(startX, y)
@@ -544,18 +776,191 @@ export default function RoadBuilder() {
     }
   }
 
-  // Draw node
-  const drawNode = (ctx: CanvasRenderingContext2D, node: { x: number; y: number }, index: number) => {
-    ctx.fillStyle = index === nodes.length - 1 ? "#3b82f6" : "#6b7280"
+  // Draw snap preview
+  const drawSnapPreview = (ctx: CanvasRenderingContext2D, pos: { x: number; y: number }) => {
+    ctx.strokeStyle = "#3b82f6"
+    ctx.lineWidth = 2
+    ctx.setLineDash([4, 4])
     ctx.beginPath()
-    ctx.arc(node.x, node.y, 6, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.arc(pos.x, pos.y, 12, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
 
-    ctx.fillStyle = "#ffffff"
-    ctx.font = "10px Arial"
+  // Draw node
+  const drawNode = (ctx: CanvasRenderingContext2D, node: Node, isSelected: boolean) => {
+    // Node circle
+    ctx.fillStyle = isSelected ? "#3b82f6" : node.connectedRoadIds.length > 0 ? "#059669" : "#6b7280"
+    ctx.strokeStyle = "#ffffff"
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+
+    // Selection ring
+    if (isSelected) {
+      ctx.strokeStyle = "#3b82f6"
+      ctx.lineWidth = 2
+      ctx.setLineDash([3, 3])
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, 15, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+  }
+
+  // Draw build session
+  const drawBuildSession = (ctx: CanvasRenderingContext2D) => {
+    // Draw nodes in build session
+    buildSession.nodes.forEach((node, index) => {
+      ctx.fillStyle = index === buildSession.nodes.length - 1 ? "#ef4444" : "#f59e0b"
+      ctx.strokeStyle = "#ffffff"
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, 8, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // Draw build complete button on last node
+      if (index === buildSession.nodes.length - 1 && buildSession.nodes.length >= 2) {
+        // Complete button (green checkmark)
+        ctx.fillStyle = "#10b981"
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(node.x + 25, node.y - 15, 12, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+
+        // Checkmark
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 3
+        ctx.lineCap = "round"
+        ctx.beginPath()
+        ctx.moveTo(node.x + 25 - 4, node.y - 15)
+        ctx.lineTo(node.x + 25 - 1, node.y - 15 + 3)
+        ctx.lineTo(node.x + 25 + 4, node.y - 15 - 3)
+        ctx.stroke()
+
+        // Cancel button (red X)
+        ctx.fillStyle = "#ef4444"
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(node.x + 25, node.y + 15, 12, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+
+        // X mark
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 3
+        ctx.lineCap = "round"
+        ctx.beginPath()
+        ctx.moveTo(node.x + 25 - 4, node.y + 15 - 4)
+        ctx.lineTo(node.x + 25 + 4, node.y + 15 + 4)
+        ctx.moveTo(node.x + 25 + 4, node.y + 15 - 4)
+        ctx.lineTo(node.x + 25 - 4, node.y + 15 + 4)
+        ctx.stroke()
+      }
+    })
+
+    // Draw roads between nodes in build session
+    for (let i = 0; i < buildSession.nodes.length - 1; i++) {
+      const start = buildSession.nodes[i]
+      const end = buildSession.nodes[i + 1]
+
+      ctx.strokeStyle = "#f59e0b"
+      ctx.lineWidth = buildSession.roadWidth
+      ctx.lineCap = "round"
+      ctx.setLineDash([10, 5])
+
+      if (buildSession.roadType === RoadType.STRAIGHT) {
+        ctx.beginPath()
+        ctx.moveTo(start.x, start.y)
+        ctx.lineTo(end.x, end.y)
+        ctx.stroke()
+      } else if (buildSession.roadType === RoadType.CURVED) {
+        const controlPointX = (start.x + end.x) / 2
+        const controlPointY = (start.y + end.y) / 2
+        const offsetX = (end.y - start.y) * 0.5
+        const offsetY = (start.x - end.x) * 0.5
+
+        ctx.beginPath()
+        ctx.moveTo(start.x, start.y)
+        ctx.quadraticCurveTo(controlPointX + offsetX, controlPointY + offsetY, end.x, end.y)
+        ctx.stroke()
+      }
+
+      ctx.setLineDash([])
+    }
+
+    // Draw preview line from last node to mouse
+    if (buildSession.nodes.length > 0 && mousePosition) {
+      const lastNode = buildSession.nodes[buildSession.nodes.length - 1]
+
+      ctx.strokeStyle = "#f59e0b"
+      ctx.lineWidth = buildSession.roadWidth
+      ctx.globalAlpha = 0.5
+      ctx.setLineDash([5, 5])
+
+      if (buildSession.roadType === RoadType.STRAIGHT) {
+        ctx.beginPath()
+        ctx.moveTo(lastNode.x, lastNode.y)
+        ctx.lineTo(mousePosition.x, mousePosition.y)
+        ctx.stroke()
+      } else if (buildSession.roadType === RoadType.CURVED) {
+        const controlPointX = (lastNode.x + mousePosition.x) / 2
+        const controlPointY = (lastNode.y + mousePosition.y) / 2
+        const offsetX = (mousePosition.y - lastNode.y) * 0.5
+        const offsetY = (lastNode.x - mousePosition.x) * 0.5
+
+        ctx.beginPath()
+        ctx.moveTo(lastNode.x, lastNode.y)
+        ctx.quadraticCurveTo(controlPointX + offsetX, controlPointY + offsetY, mousePosition.x, mousePosition.y)
+        ctx.stroke()
+      }
+
+      ctx.setLineDash([])
+      ctx.globalAlpha = 1
+    }
+  }
+
+  // Draw circle preview
+  const drawCirclePreview = (ctx: CanvasRenderingContext2D, center: { x: number; y: number }, radius: number) => {
+    ctx.strokeStyle = "#94a3b8"
+    ctx.lineWidth = defaultRoadWidth
+    ctx.setLineDash([5, 5])
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  // Draw road length
+  const drawRoadLength = (ctx: CanvasRenderingContext2D, road: Road) => {
+    const length = calculateRoadLength(road)
+    let midX: number, midY: number
+
+    if (road.type === RoadType.CIRCLE) {
+      midX = road.start.x
+      midY = road.start.y - Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2) / 2
+    } else {
+      midX = (road.start.x + road.end.x) / 2
+      midY = (road.start.y + road.end.y) / 2
+    }
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)"
+    ctx.strokeStyle = "#e5e7eb"
+    ctx.lineWidth = 1
+    ctx.fillRect(midX - 25, midY - 10, 50, 20)
+    ctx.strokeRect(midX - 25, midY - 10, 50, 20)
+
+    ctx.fillStyle = "#374151"
+    ctx.font = "11px Arial"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
-    ctx.fillText(index.toString(), node.x, node.y)
+    ctx.fillText(`${length.toFixed(1)}m`, midX, midY)
   }
 
   // Draw road
@@ -587,7 +992,6 @@ export default function RoadBuilder() {
       ctx.stroke()
     }
 
-    // Draw selection outline
     if (isSelected) {
       ctx.strokeStyle = "#3b82f6"
       ctx.lineWidth = road.width + 4
@@ -623,57 +1027,49 @@ export default function RoadBuilder() {
   const clearCanvas = () => {
     setNodes([])
     setRoads([])
+    setBuildSession({ nodes: [], isActive: false, roadType: RoadType.STRAIGHT, roadWidth: 10 })
     setSelectedRoadId(null)
+    setSelectedNodeId(null)
     setPanOffset({ x: 0, y: 0 })
     setZoom(1)
-    setIsDrawingCircle(false)
-    setCircleCenter(null)
-    setCircleRadius(0)
   }
 
   // Remove last element
   const removeLastElement = () => {
-    if (roads.length > 0) {
+    if (buildSession.isActive && buildSession.nodes.length > 0) {
+      const lastNode = buildSession.nodes[buildSession.nodes.length - 1]
+      setBuildSession((prev) => ({
+        ...prev,
+        nodes: prev.nodes.slice(0, -1),
+      }))
+
+      // Remove the node if it was created in this session and has no other connections
+      const node = nodes.find((n) => n.id === lastNode.id)
+      if (node && node.connectedRoadIds.length === 0) {
+        setNodes((prev) => prev.filter((n) => n.id !== lastNode.id))
+      }
+    } else if (roads.length > 0) {
       const newRoads = [...roads]
       newRoads.pop()
       setRoads(newRoads)
-    } else if (nodes.length > 0) {
-      const newNodes = [...nodes]
-      newNodes.pop()
-      setNodes(newNodes)
-    }
-  }
-
-  // Delete selected road
-  const deleteSelectedRoad = () => {
-    if (selectedRoadId) {
-      setRoads(roads.filter((road) => road.id !== selectedRoadId))
-      setSelectedRoadId(null)
-    }
-  }
-
-  const updateSelectedRoadWidth = (width: number) => {
-    if (selectedRoadId) {
-      setRoads(roads.map((road) => (road.id === selectedRoadId ? { ...road, width: width } : road)))
     }
   }
 
   const selectedRoad = roads.find((r) => r.id === selectedRoadId)
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
   const totalLength = roads.reduce((sum, road) => sum + calculateRoadLength(road), 0)
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col">
-        {/* Stats Bar */}
         <div className="bg-white border-b px-4 py-2 flex gap-6 text-sm text-gray-600">
           <span>Roads: {roads.length}</span>
-          <span>Total Length: {totalLength.toFixed(1)}m</span>
           <span>Nodes: {nodes.length}</span>
+          <span>Total Length: {totalLength.toFixed(1)}m</span>
           <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
+          {buildSession.isActive && <Badge variant="secondary">Building: {buildSession.nodes.length} nodes</Badge>}
         </div>
 
-        {/* Canvas Container */}
         <div ref={containerRef} className="relative flex-1 bg-white">
           <canvas
             ref={canvasRef}
@@ -685,21 +1081,19 @@ export default function RoadBuilder() {
                 ? "cursor-move"
                 : drawingMode === "move" && isDraggingRoad
                   ? "cursor-grabbing"
-                  : drawingMode === "move" && findRoadAtPosition(mousePosition?.x || 0, mousePosition?.y || 0)
-                    ? "cursor-pointer"
-                    : drawingMode === "circle"
-                      ? "cursor-crosshair"
+                  : drawingMode === "select-node" && isDraggingNode
+                    ? "cursor-grabbing"
+                    : drawingMode === "select-node"
+                      ? "cursor-pointer"
                       : "cursor-crosshair"
             }`}
           />
 
-          {/* Mode indicator */}
           <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
-            Mode: {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)}
-            {isDrawingCircle && " (Click to finish circle)"}
+            Mode: {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1).replace("-", " ")}
+            {buildSession.isActive && " (Building road...)"}
           </div>
 
-          {/* Zoom controls */}
           <div className="absolute top-4 right-4 flex flex-col gap-2">
             <Button variant="outline" size="sm" onClick={zoomIn}>
               <ZoomIn size={16} />
@@ -711,13 +1105,24 @@ export default function RoadBuilder() {
               {(zoom * 100).toFixed(0)}%
             </Button>
           </div>
+
+          {buildSession.isActive && buildSession.nodes.length >= 2 && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border flex gap-2">
+              <Button size="sm" onClick={completeBuildSession} className="bg-green-600 hover:bg-green-700">
+                <Check size={16} className="mr-1" />
+                Complete Road
+              </Button>
+              <Button size="sm" variant="outline" onClick={cancelBuildSession}>
+                <X size={16} className="mr-1" />
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Right Tool Panel */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Drawing Tools */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Tools</h3>
             <div className="grid grid-cols-2 gap-2">
@@ -728,7 +1133,7 @@ export default function RoadBuilder() {
                 className="flex flex-col items-center gap-1 h-16"
               >
                 <MousePointer2 size={20} />
-                <span className="text-xs">Nodes</span>
+                <span className="text-xs">Build</span>
               </Toggle>
               <Toggle
                 pressed={drawingMode === "lines"}
@@ -742,35 +1147,41 @@ export default function RoadBuilder() {
             </div>
           </div>
 
-          {/* Navigation Tools */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Navigation Tools</h3>
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Selection Tools</h3>
             <div className="grid grid-cols-2 gap-2">
               <Toggle
-                pressed={drawingMode === "move"}
-                onPressedChange={() => setDrawingMode("move")}
-                aria-label="Select mode"
+                pressed={drawingMode === "select-node"}
+                onPressedChange={() => setDrawingMode("select-node")}
+                aria-label="Select node mode"
                 className="flex flex-col items-center gap-1 h-16"
               >
                 <MousePointer size={20} />
-                <span className="text-xs">Select</span>
+                <span className="text-xs">Nodes</span>
               </Toggle>
               <Toggle
-                pressed={drawingMode === "pan"}
-                onPressedChange={() => setDrawingMode("pan")}
-                aria-label="Pan mode"
+                pressed={drawingMode === "move"}
+                onPressedChange={() => setDrawingMode("move")}
+                aria-label="Select road mode"
                 className="flex flex-col items-center gap-1 h-16"
               >
                 <Move size={20} />
-                <span className="text-xs">Pan</span>
+                <span className="text-xs">Roads</span>
               </Toggle>
             </div>
+            <Toggle
+              pressed={drawingMode === "pan"}
+              onPressedChange={() => setDrawingMode("pan")}
+              aria-label="Pan mode"
+              className="flex flex-col items-center gap-1 h-12 w-full"
+            >
+              <Move size={20} />
+              <span className="text-xs">Pan View</span>
+            </Toggle>
           </div>
 
-          {/* Road Settings */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Road Settings</h3>
-
             <div className="space-y-3">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -816,7 +1227,6 @@ export default function RoadBuilder() {
             </div>
           </div>
 
-          {/* Options */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Options</h3>
             <div className="space-y-3">
@@ -828,7 +1238,7 @@ export default function RoadBuilder() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm">Grid Snapping</span>
+                <span className="text-sm">Auto Snapping</span>
                 <Toggle pressed={snapEnabled} onPressedChange={setSnapEnabled}>
                   <span className="text-xs">Snap</span>
                 </Toggle>
@@ -843,7 +1253,30 @@ export default function RoadBuilder() {
             </div>
           </div>
 
-          {/* Selected Road Settings */}
+          {selectedNode && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Selected Node</h3>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-gray-50 p-2 rounded">
+                    <div className="text-gray-500">Position</div>
+                    <div className="font-medium">
+                      {selectedNode.x.toFixed(0)}, {selectedNode.y.toFixed(0)}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded">
+                    <div className="text-gray-500">Roads</div>
+                    <div className="font-medium">{selectedNode.connectedRoadIds.length}</div>
+                  </div>
+                </div>
+                <Button variant="destructive" size="sm" className="w-full" onClick={() => deleteNode(selectedNode.id)}>
+                  <Trash2 size={16} className="mr-1" />
+                  Delete Node
+                </Button>
+              </div>
+            </div>
+          )}
+
           {selectedRoad && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Selected Road</h3>
@@ -854,11 +1287,14 @@ export default function RoadBuilder() {
                     <div className="font-medium">{calculateRoadLength(selectedRoad).toFixed(1)}m</div>
                   </div>
                 </div>
+                <Button variant="destructive" size="sm" className="w-full" onClick={() => deleteRoad(selectedRoad.id)}>
+                  <Trash2 size={16} className="mr-1" />
+                  Delete Road
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Actions */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Actions</h3>
             <div className="space-y-2">
@@ -869,6 +1305,17 @@ export default function RoadBuilder() {
                 <Trash2 size={16} className="mr-2" /> Clear All
               </Button>
             </div>
+          </div>
+
+          <div className="text-xs text-gray-500 space-y-1">
+            <div>
+              <strong>Shortcuts:</strong>
+            </div>
+            <div>C - Toggle curved roads</div>
+            <div>Shift - Enable snapping</div>
+            <div>Enter/Space - Complete road</div>
+            <div>Escape - Cancel/Clear selection</div>
+            <div>Delete - Remove selected item</div>
           </div>
         </div>
       </div>
