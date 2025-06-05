@@ -1,6 +1,7 @@
 export enum RoadType {
   STRAIGHT = "straight",
   CURVED = "curved",
+  CIRCLE = "circle",
 }
 
 export interface Road {

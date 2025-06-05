@@ -9,18 +9,16 @@ import { type Road, RoadType } from "@/lib/road-types"
 import {
   SplineIcon as BezierCurve,
   PenLineIcon as StraightLine,
-  Maximize2,
-  Minimize2,
   Trash2,
   Undo2,
   MousePointer2,
   Minus,
-  Hand,
   Move,
   Ruler,
-  Settings,
-  Play,
-  Pause,
+  ZoomIn,
+  ZoomOut,
+  Circle,
+  MousePointer,
 } from "lucide-react"
 
 export default function RoadBuilder() {
@@ -31,18 +29,17 @@ export default function RoadBuilder() {
   const [snapEnabled, setSnapEnabled] = useState(false)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
-  const [fullscreen, setFullscreen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // New states
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "marker">("nodes")
+  // Updated states - added move and circle modes
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "move" | "circle">("nodes")
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentLine, setCurrentLine] = useState<{
     start: { x: number; y: number }
     end: { x: number; y: number }
   } | null>(null)
-  const [showRoadLengths, setShowRoadLengths] = useState(true)
-  const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1) // 1 pixel = 0.1 meters
+  const [showRoadLengths, setShowRoadLengths] = useState(false)
+  const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
   const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
 
   // Pan functionality
@@ -50,15 +47,19 @@ export default function RoadBuilder() {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
   const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 })
 
-  // Marker functionality
-  const [markerPosition, setMarkerPosition] = useState<{
-    x: number
-    y: number
-    roadId: string
-    progress: number
-  } | null>(null)
-  const [markerMoving, setMarkerMoving] = useState(false)
-  const markerAnimationRef = useRef<number>()
+  // Zoom functionality
+  const [zoom, setZoom] = useState(1)
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null)
+
+  // Road dragging (only in move mode)
+  const [isDraggingRoad, setIsDraggingRoad] = useState(false)
+  const [draggedRoadId, setDraggedRoadId] = useState<string | null>(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+
+  // Circle drawing
+  const [isDrawingCircle, setIsDrawingCircle] = useState(false)
+  const [circleCenter, setCircleCenter] = useState<{ x: number; y: number } | null>(null)
+  const [circleRadius, setCircleRadius] = useState(0)
 
   // Draw the canvas
   useEffect(() => {
@@ -71,9 +72,10 @@ export default function RoadBuilder() {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Apply pan offset
+    // Apply transformations
     ctx.save()
     ctx.translate(panOffset.x, panOffset.y)
+    ctx.scale(zoom, zoom)
 
     // Draw grid
     drawGrid(ctx, canvas.width, canvas.height)
@@ -98,16 +100,35 @@ export default function RoadBuilder() {
       drawRoad(ctx, tempRoad, false)
     }
 
-    // Draw nodes (only in node mode)
+    // Draw circle preview
+    if (isDrawingCircle && circleCenter && circleRadius > 0) {
+      drawCirclePreview(ctx, circleCenter, circleRadius)
+    }
+
+    // Draw nodes and preview line in node mode
     if (drawingMode === "nodes") {
       nodes.forEach((node, index) => {
         drawNode(ctx, node, index)
       })
-    }
 
-    // Draw marker
-    if (markerPosition) {
-      drawMarker(ctx, markerPosition)
+      // Draw preview road from last node to mouse position
+      if (nodes.length > 0 && mousePosition) {
+        const lastNode = nodes[nodes.length - 1]
+
+        // Create a temporary road object for preview
+        const previewRoad: Road = {
+          start: lastNode,
+          end: mousePosition,
+          type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
+          width: defaultRoadWidth,
+          id: "preview",
+        }
+
+        // Draw the preview road with reduced opacity
+        ctx.globalAlpha = 0.6
+        drawRoad(ctx, previewRoad, false)
+        ctx.globalAlpha = 1
+      }
     }
 
     ctx.restore()
@@ -121,7 +142,11 @@ export default function RoadBuilder() {
     curvedRoads,
     selectedRoadId,
     panOffset,
-    markerPosition,
+    zoom,
+    mousePosition,
+    isDrawingCircle,
+    circleCenter,
+    circleRadius,
   ])
 
   // Handle window resize
@@ -143,69 +168,45 @@ export default function RoadBuilder() {
     }
   }, [])
 
-  // Marker animation
+  // Handle keyboard shortcuts
   useEffect(() => {
-    if (markerMoving && markerPosition) {
-      const animate = () => {
-        setMarkerPosition((prev) => {
-          if (!prev) return null
-
-          const road = roads.find((r) => r.id === prev.roadId)
-          if (!road) return null
-
-          let newProgress = prev.progress + 0.005
-          if (newProgress >= 1) {
-            // Find next connected road or loop back
-            newProgress = 0
-          }
-
-          const newPos = getPositionOnRoad(road, newProgress)
-          return {
-            ...prev,
-            ...newPos,
-            progress: newProgress,
-          }
-        })
-
-        markerAnimationRef.current = requestAnimationFrame(animate)
-      }
-
-      markerAnimationRef.current = requestAnimationFrame(animate)
-    } else {
-      if (markerAnimationRef.current) {
-        cancelAnimationFrame(markerAnimationRef.current)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "c" || e.key === "C") {
+        setCurvedRoads((prev) => !prev)
+      } else if (e.key === "Shift") {
+        setSnapEnabled(true)
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        removeLastElement()
+      } else if (e.key === "Escape") {
+        // Finish current drawing and reset
+        setNodes([])
+        setCurrentLine(null)
+        setIsDrawing(false)
+        setIsDrawingCircle(false)
+        setCircleCenter(null)
+        setCircleRadius(0)
+        setSelectedRoadId(null)
+      } else if (e.key === "+" || e.key === "=") {
+        zoomIn()
+      } else if (e.key === "-") {
+        zoomOut()
       }
     }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") {
+        setSnapEnabled(false)
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
 
     return () => {
-      if (markerAnimationRef.current) {
-        cancelAnimationFrame(markerAnimationRef.current)
-      }
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [markerMoving, markerPosition, roads])
-
-  // Get position on road at given progress (0-1)
-  const getPositionOnRoad = (road: Road, progress: number) => {
-    if (road.type === RoadType.STRAIGHT) {
-      return {
-        x: road.start.x + (road.end.x - road.start.x) * progress,
-        y: road.start.y + (road.end.y - road.start.y) * progress,
-      }
-    } else {
-      // Quadratic bezier curve
-      const controlPointX = (road.start.x + road.end.x) / 2
-      const controlPointY = (road.start.y + road.end.y) / 2
-      const offsetX = (road.end.y - road.start.y) * 0.5
-      const offsetY = (road.start.x - road.end.x) * 0.5
-      const cp = { x: controlPointX + offsetX, y: controlPointY + offsetY }
-
-      const t = progress
-      const x = (1 - t) * (1 - t) * road.start.x + 2 * (1 - t) * t * cp.x + t * t * road.end.x
-      const y = (1 - t) * (1 - t) * road.start.y + 2 * (1 - t) * t * cp.y + t * t * road.end.y
-
-      return { x, y }
-    }
-  }
+  }, [])
 
   // Calculate road length in meters
   const calculateRoadLength = (road: Road): number => {
@@ -215,7 +216,7 @@ export default function RoadBuilder() {
       const dx = road.end.x - road.start.x
       const dy = road.end.y - road.start.y
       pixelLength = Math.sqrt(dx * dx + dy * dy)
-    } else {
+    } else if (road.type === RoadType.CURVED) {
       // Approximate curved road length
       const controlPointX = (road.start.x + road.end.x) / 2
       const controlPointY = (road.start.y + road.end.y) / 2
@@ -226,35 +227,38 @@ export default function RoadBuilder() {
       const d1 = Math.sqrt((cp.x - road.start.x) ** 2 + (cp.y - road.start.y) ** 2)
       const d2 = Math.sqrt((road.end.x - cp.x) ** 2 + (road.end.y - cp.y) ** 2)
       pixelLength = d1 + d2
+    } else {
+      // Circle road length
+      const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
+      pixelLength = 2 * Math.PI * radius
     }
 
     return pixelLength * scaleMetersPerPixel
   }
 
-  // Draw marker
-  const drawMarker = (ctx: CanvasRenderingContext2D, marker: { x: number; y: number }) => {
-    ctx.fillStyle = "#ef4444"
-    ctx.strokeStyle = "#ffffff"
-    ctx.lineWidth = 2
-
-    // Draw hand cursor shape
+  // Draw circle preview
+  const drawCirclePreview = (ctx: CanvasRenderingContext2D, center: { x: number; y: number }, radius: number) => {
+    ctx.strokeStyle = "#94a3b8"
+    ctx.lineWidth = defaultRoadWidth
+    ctx.setLineDash([5, 5])
     ctx.beginPath()
-    ctx.arc(marker.x, marker.y, 8, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2)
     ctx.stroke()
-
-    // Draw direction indicator
-    ctx.fillStyle = "#ffffff"
-    ctx.beginPath()
-    ctx.arc(marker.x, marker.y, 3, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.setLineDash([])
   }
 
   // Draw road length
   const drawRoadLength = (ctx: CanvasRenderingContext2D, road: Road) => {
     const length = calculateRoadLength(road)
-    const midX = (road.start.x + road.end.x) / 2
-    const midY = (road.start.y + road.end.y) / 2
+    let midX: number, midY: number
+
+    if (road.type === RoadType.CIRCLE) {
+      midX = road.start.x
+      midY = road.start.y - Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2) / 2
+    } else {
+      midX = (road.start.x + road.end.x) / 2
+      midY = (road.start.y + road.end.y) / 2
+    }
 
     // Draw background for text
     ctx.fillStyle = "rgba(255, 255, 255, 0.9)"
@@ -271,18 +275,14 @@ export default function RoadBuilder() {
     ctx.fillText(`${length.toFixed(1)}m`, midX, midY)
   }
 
-  // Convert screen coordinates to canvas coordinates
-  const getCanvasCoordinates = (e: MouseEvent<HTMLCanvasElement>) => {
+  // Convert screen coordinates to world coordinates
+  const getWorldCoordinates = (e: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
 
     const rect = canvas.getBoundingClientRect()
-    let x = e.clientX - rect.left
-    let y = e.clientY - rect.top
-
-    // Apply inverse pan offset to get world coordinates
-    x = x - panOffset.x
-    y = y - panOffset.y
+    let x = (e.clientX - rect.left - panOffset.x) / zoom
+    let y = (e.clientY - rect.top - panOffset.y) / zoom
 
     if (snapEnabled) {
       const snapped = getSnappedPosition(x, y)
@@ -293,64 +293,17 @@ export default function RoadBuilder() {
     return { x, y }
   }
 
-  // Handle mouse down
-  const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
-    const coords = getCanvasCoordinates(e)
+  // Find road at position (only for move mode)
+  const findRoadAtPosition = (x: number, y: number): Road | null => {
+    if (drawingMode !== "move") return null
 
-    if (drawingMode === "pan") {
-      setIsPanning(true)
-      setLastPanPoint({ x: e.clientX, y: e.clientY })
-    } else if (drawingMode === "marker") {
-      // Place marker on nearest road
-      const nearestRoad = findNearestRoad(coords.x, coords.y)
-      if (nearestRoad) {
-        const progress = getProgressOnRoad(nearestRoad.road, coords.x, coords.y)
-        const position = getPositionOnRoad(nearestRoad.road, progress)
-        setMarkerPosition({
-          ...position,
-          roadId: nearestRoad.road.id,
-          progress,
-        })
-      }
-    } else if (drawingMode === "nodes") {
-      // Add new node
-      const newNode = coords
-      const newNodes = [...nodes, newNode]
-      setNodes(newNodes)
-
-      // Create road if we have at least 2 nodes
-      if (newNodes.length > 1) {
-        const prevNode = newNodes[newNodes.length - 2]
-        const newRoad: Road = {
-          start: prevNode,
-          end: newNode,
-          type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
-          width: defaultRoadWidth,
-          id: `road-${Date.now()}-${Math.random()}`,
-        }
-        setRoads([...roads, newRoad])
-      }
-    } else if (drawingMode === "lines") {
-      // Start drawing a line
-      setIsDrawing(true)
-      setCurrentLine({ start: coords, end: coords })
-    }
-  }
-
-  // Find nearest road to point
-  const findNearestRoad = (x: number, y: number) => {
-    let nearestRoad = null
-    let minDistance = Number.POSITIVE_INFINITY
-
-    roads.forEach((road) => {
+    for (const road of roads) {
       const distance = getDistanceToRoad(road, x, y)
-      if (distance < minDistance) {
-        minDistance = distance
-        nearestRoad = { road, distance }
+      if (distance < road.width / 2 + 5) {
+        return road
       }
-    })
-
-    return nearestRoad && nearestRoad.distance < 20 ? nearestRoad : null
+    }
+    return null
   }
 
   // Get distance from point to road
@@ -382,6 +335,13 @@ export default function RoadBuilder() {
       const dx = x - xx
       const dy = y - yy
       return Math.sqrt(dx * dx + dy * dy)
+    } else if (road.type === RoadType.CIRCLE) {
+      // Distance from point to circle
+      const centerX = road.start.x
+      const centerY = road.start.y
+      const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
+      const distanceToCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2)
+      return Math.abs(distanceToCenter - radius)
     } else {
       // Simplified distance for curved roads
       const midX = (road.start.x + road.end.x) / 2
@@ -392,20 +352,91 @@ export default function RoadBuilder() {
     }
   }
 
-  // Get progress along road (0-1) for given point
-  const getProgressOnRoad = (road: Road, x: number, y: number) => {
-    if (road.type === RoadType.STRAIGHT) {
-      const totalLength = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
-      const currentLength = Math.sqrt((x - road.start.x) ** 2 + (y - road.start.y) ** 2)
-      return Math.min(1, Math.max(0, currentLength / totalLength))
-    } else {
-      // Simplified for curved roads
-      return 0.5
+  // Handle mouse down
+  const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
+    const coords = getWorldCoordinates(e)
+
+    if (drawingMode === "pan") {
+      setIsPanning(true)
+      setLastPanPoint({ x: e.clientX, y: e.clientY })
+    } else if (drawingMode === "move") {
+      // Check if clicking on existing road to drag it
+      const clickedRoad = findRoadAtPosition(coords.x, coords.y)
+      if (clickedRoad) {
+        setIsDraggingRoad(true)
+        setDraggedRoadId(clickedRoad.id)
+        setSelectedRoadId(clickedRoad.id)
+        const roadCenter = {
+          x: (clickedRoad.start.x + clickedRoad.end.x) / 2,
+          y: (clickedRoad.start.y + clickedRoad.end.y) / 2,
+        }
+        setDragOffset({
+          x: coords.x - roadCenter.x,
+          y: coords.y - roadCenter.y,
+        })
+      }
+    } else if (drawingMode === "nodes") {
+      // Only add nodes in node mode - no road dragging
+      const newNode = coords
+      const newNodes = [...nodes, newNode]
+      setNodes(newNodes)
+
+      // Create road if we have at least 2 nodes
+      if (newNodes.length > 1) {
+        const prevNode = newNodes[newNodes.length - 2]
+        const newRoad: Road = {
+          start: prevNode,
+          end: newNode,
+          type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
+          width: defaultRoadWidth,
+          id: `road-${Date.now()}-${Math.random()}`,
+        }
+        setRoads([...roads, newRoad])
+      }
+    } else if (drawingMode === "lines") {
+      // Start drawing a line
+      setIsDrawing(true)
+      setCurrentLine({ start: coords, end: coords })
+    } else if (drawingMode === "circle") {
+      if (!isDrawingCircle) {
+        // Start drawing circle - set center
+        setIsDrawingCircle(true)
+        setCircleCenter(coords)
+        setCircleRadius(0)
+      } else {
+        // Finish drawing circle
+        if (circleCenter && circleRadius > 10) {
+          const newRoad: Road = {
+            start: circleCenter,
+            end: { x: circleCenter.x + circleRadius, y: circleCenter.y },
+            type: RoadType.CIRCLE,
+            width: defaultRoadWidth,
+            id: `road-${Date.now()}-${Math.random()}`,
+          }
+          setRoads([...roads, newRoad])
+        }
+        setIsDrawingCircle(false)
+        setCircleCenter(null)
+        setCircleRadius(0)
+      }
     }
   }
 
   // Handle mouse move
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
+    const coords = getWorldCoordinates(e)
+
+    // Update mouse position for preview line
+    if (drawingMode === "nodes") {
+      setMousePosition(coords)
+    }
+
+    // Update circle radius while drawing
+    if (isDrawingCircle && circleCenter) {
+      const radius = Math.sqrt((coords.x - circleCenter.x) ** 2 + (coords.y - circleCenter.y) ** 2)
+      setCircleRadius(radius)
+    }
+
     if (isPanning && drawingMode === "pan") {
       const deltaX = e.clientX - lastPanPoint.x
       const deltaY = e.clientY - lastPanPoint.y
@@ -414,8 +445,30 @@ export default function RoadBuilder() {
         y: prev.y + deltaY,
       }))
       setLastPanPoint({ x: e.clientX, y: e.clientY })
+    } else if (isDraggingRoad && draggedRoadId && drawingMode === "move") {
+      // Drag the selected road
+      const road = roads.find((r) => r.id === draggedRoadId)
+      if (road) {
+        const newCenterX = coords.x - dragOffset.x
+        const newCenterY = coords.y - dragOffset.y
+        const currentCenterX = (road.start.x + road.end.x) / 2
+        const currentCenterY = (road.start.y + road.end.y) / 2
+        const deltaX = newCenterX - currentCenterX
+        const deltaY = newCenterY - currentCenterY
+
+        setRoads(
+          roads.map((r) =>
+            r.id === draggedRoadId
+              ? {
+                  ...r,
+                  start: { x: r.start.x + deltaX, y: r.start.y + deltaY },
+                  end: { x: r.end.x + deltaX, y: r.end.y + deltaY },
+                }
+              : r,
+          ),
+        )
+      }
     } else if (isDrawing && drawingMode === "lines" && currentLine) {
-      const coords = getCanvasCoordinates(e)
       setCurrentLine({ ...currentLine, end: coords })
     }
   }
@@ -424,6 +477,9 @@ export default function RoadBuilder() {
   const handleMouseUp = () => {
     if (isPanning) {
       setIsPanning(false)
+    } else if (isDraggingRoad) {
+      setIsDraggingRoad(false)
+      setDraggedRoadId(null)
     } else if (isDrawing && currentLine && drawingMode === "lines") {
       // Add the completed road
       const newRoad: Road = {
@@ -448,28 +504,43 @@ export default function RoadBuilder() {
     }
   }
 
+  // Zoom functions
+  const zoomIn = () => {
+    setZoom((prev) => Math.min(prev * 1.2, 5))
+  }
+
+  const zoomOut = () => {
+    setZoom((prev) => Math.max(prev / 1.2, 0.1))
+  }
+
+  const resetZoom = () => {
+    setZoom(1)
+  }
+
   // Draw grid
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const gridSize = snapDistance
     ctx.strokeStyle = "#f3f4f6"
     ctx.lineWidth = 0.5
 
-    const startX = Math.floor(-panOffset.x / gridSize) * gridSize
-    const startY = Math.floor(-panOffset.y / gridSize) * gridSize
+    const startX = Math.floor(-panOffset.x / zoom / gridSize) * gridSize
+    const startY = Math.floor(-panOffset.y / zoom / gridSize) * gridSize
+    const endX = startX + width / zoom + gridSize
+    const endY = startY + height / zoom + gridSize
 
     // Draw vertical lines
-    for (let x = startX; x <= width - panOffset.x; x += gridSize) {
+    for (let x = startX; x <= endX; x += gridSize) {
       ctx.beginPath()
-      ctx.moveTo(x, -panOffset.y)
-      ctx.lineTo(x, height - panOffset.y)
+      ctx.moveTo(x, startY)
+      ctx.lineTo(x, endY)
       ctx.stroke()
     }
 
     // Draw horizontal lines
-    for (let y = startY; y <= height - panOffset.y; y += gridSize) {
+    for (let y = startY; y <= endY; y += gridSize) {
       ctx.beginPath()
-      ctx.moveTo(-panOffset.x, y)
-      ctx.lineTo(width - panOffset.x, y)
+      ctx.moveTo(startX, y)
+      ctx.lineTo(endX, y)
       ctx.stroke()
     }
   }
@@ -500,7 +571,7 @@ export default function RoadBuilder() {
       ctx.moveTo(road.start.x, road.start.y)
       ctx.lineTo(road.end.x, road.end.y)
       ctx.stroke()
-    } else {
+    } else if (road.type === RoadType.CURVED) {
       const controlPointX = (road.start.x + road.end.x) / 2
       const controlPointY = (road.start.y + road.end.y) / 2
       const offsetX = (road.end.y - road.start.y) * 0.5
@@ -509,6 +580,11 @@ export default function RoadBuilder() {
       ctx.beginPath()
       ctx.moveTo(road.start.x, road.start.y)
       ctx.quadraticCurveTo(controlPointX + offsetX, controlPointY + offsetY, road.end.x, road.end.y)
+      ctx.stroke()
+    } else if (road.type === RoadType.CIRCLE) {
+      const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
+      ctx.beginPath()
+      ctx.arc(road.start.x, road.start.y, radius, 0, Math.PI * 2)
       ctx.stroke()
     }
 
@@ -523,7 +599,7 @@ export default function RoadBuilder() {
         ctx.moveTo(road.start.x, road.start.y)
         ctx.lineTo(road.end.x, road.end.y)
         ctx.stroke()
-      } else {
+      } else if (road.type === RoadType.CURVED) {
         const controlPointX = (road.start.x + road.end.x) / 2
         const controlPointY = (road.start.y + road.end.y) / 2
         const offsetX = (road.end.y - road.start.y) * 0.5
@@ -532,6 +608,11 @@ export default function RoadBuilder() {
         ctx.beginPath()
         ctx.moveTo(road.start.x, road.start.y)
         ctx.quadraticCurveTo(controlPointX + offsetX, controlPointY + offsetY, road.end.x, road.end.y)
+        ctx.stroke()
+      } else if (road.type === RoadType.CIRCLE) {
+        const radius = Math.sqrt((road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2)
+        ctx.beginPath()
+        ctx.arc(road.start.x, road.start.y, radius, 0, Math.PI * 2)
         ctx.stroke()
       }
 
@@ -543,8 +624,12 @@ export default function RoadBuilder() {
   const clearCanvas = () => {
     setNodes([])
     setRoads([])
-    setMarkerPosition(null)
+    setSelectedRoadId(null)
     setPanOffset({ x: 0, y: 0 })
+    setZoom(1)
+    setIsDrawingCircle(false)
+    setCircleCenter(null)
+    setCircleRadius(0)
   }
 
   // Remove last element
@@ -560,15 +645,17 @@ export default function RoadBuilder() {
     }
   }
 
-  // Toggle fullscreen
-  const toggleFullscreen = () => {
-    setFullscreen(!fullscreen)
+  // Delete selected road
+  const deleteSelectedRoad = () => {
+    if (selectedRoadId) {
+      setRoads(roads.filter((road) => road.id !== selectedRoadId))
+      setSelectedRoadId(null)
+    }
   }
 
-  // Update selected road width
   const updateSelectedRoadWidth = (width: number) => {
     if (selectedRoadId) {
-      setRoads(roads.map((road) => (road.id === selectedRoadId ? { ...road, width } : road)))
+      setRoads(roads.map((road) => (road.id === selectedRoadId ? { ...road, width: width } : road)))
     }
   }
 
@@ -584,46 +671,56 @@ export default function RoadBuilder() {
           <span>Roads: {roads.length}</span>
           <span>Total Length: {totalLength.toFixed(1)}m</span>
           <span>Nodes: {nodes.length}</span>
+          <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
         </div>
 
         {/* Canvas Container */}
-        <div ref={containerRef} className={`relative flex-1 bg-white ${fullscreen ? "fixed inset-0 z-50" : ""}`}>
+        <div ref={containerRef} className="relative flex-1 bg-white">
           <canvas
             ref={canvasRef}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             className={`w-full h-full ${
-              drawingMode === "pan" ? "cursor-move" : drawingMode === "marker" ? "cursor-pointer" : "cursor-crosshair"
+              drawingMode === "pan"
+                ? "cursor-move"
+                : drawingMode === "move" && isDraggingRoad
+                  ? "cursor-grabbing"
+                  : drawingMode === "move" && findRoadAtPosition(mousePosition?.x || 0, mousePosition?.y || 0)
+                    ? "cursor-pointer"
+                    : drawingMode === "circle"
+                      ? "cursor-crosshair"
+                      : "cursor-crosshair"
             }`}
           />
 
           {/* Mode indicator */}
           <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
             Mode: {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)}
+            {isDrawingCircle && " (Click to finish circle)"}
           </div>
 
-          {fullscreen && (
-            <Button variant="outline" size="sm" className="absolute top-4 right-4" onClick={toggleFullscreen}>
-              <Minimize2 size={16} />
+          {/* Zoom controls */}
+          <div className="absolute top-4 right-4 flex flex-col gap-2">
+            <Button variant="outline" size="sm" onClick={zoomIn}>
+              <ZoomIn size={16} />
             </Button>
-          )}
+            <Button variant="outline" size="sm" onClick={zoomOut}>
+              <ZoomOut size={16} />
+            </Button>
+            <Button variant="outline" size="sm" onClick={resetZoom} className="text-xs">
+              {(zoom * 100).toFixed(0)}%
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Right Tool Panel */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Settings size={20} />
-            Road Builder Tools
-          </h2>
-        </div>
-
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Drawing Modes */}
+          {/* Drawing Tools */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Mode</h3>
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Tools</h3>
             <div className="grid grid-cols-2 gap-2">
               <Toggle
                 pressed={drawingMode === "nodes"}
@@ -644,6 +741,31 @@ export default function RoadBuilder() {
                 <span className="text-xs">Lines</span>
               </Toggle>
               <Toggle
+                pressed={drawingMode === "circle"}
+                onPressedChange={() => setDrawingMode("circle")}
+                aria-label="Circle mode"
+                className="flex flex-col items-center gap-1 h-16 col-span-2"
+              >
+                <Circle size={20} />
+                <span className="text-xs">Circle</span>
+              </Toggle>
+            </div>
+          </div>
+
+          {/* Navigation Tools */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Navigation Tools</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <Toggle
+                pressed={drawingMode === "move"}
+                onPressedChange={() => setDrawingMode("move")}
+                aria-label="Select mode"
+                className="flex flex-col items-center gap-1 h-16"
+              >
+                <MousePointer size={20} />
+                <span className="text-xs">Select</span>
+              </Toggle>
+              <Toggle
                 pressed={drawingMode === "pan"}
                 onPressedChange={() => setDrawingMode("pan")}
                 aria-label="Pan mode"
@@ -651,15 +773,6 @@ export default function RoadBuilder() {
               >
                 <Move size={20} />
                 <span className="text-xs">Pan</span>
-              </Toggle>
-              <Toggle
-                pressed={drawingMode === "marker"}
-                onPressedChange={() => setDrawingMode("marker")}
-                aria-label="Marker mode"
-                className="flex flex-col items-center gap-1 h-16"
-              >
-                <Hand size={20} />
-                <span className="text-xs">Marker</span>
               </Toggle>
             </div>
           </div>
@@ -740,21 +853,6 @@ export default function RoadBuilder() {
             </div>
           </div>
 
-          {/* Marker Controls */}
-          {markerPosition && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Marker Control</h3>
-              <Button
-                className="w-full"
-                variant={markerMoving ? "default" : "outline"}
-                onClick={() => setMarkerMoving(!markerMoving)}
-              >
-                {markerMoving ? <Pause size={16} className="mr-2" /> : <Play size={16} className="mr-2" />}
-                {markerMoving ? "Pause" : "Start"} Movement
-              </Button>
-            </div>
-          )}
-
           {/* Selected Road Settings */}
           {selectedRoad && (
             <div className="space-y-3">
@@ -767,7 +865,13 @@ export default function RoadBuilder() {
                   </div>
                   <div className="bg-gray-50 p-2 rounded">
                     <div className="text-gray-500">Type</div>
-                    <div className="font-medium">{selectedRoad.type === RoadType.CURVED ? "Curved" : "Straight"}</div>
+                    <div className="font-medium">
+                      {selectedRoad.type === RoadType.CURVED
+                        ? "Curved"
+                        : selectedRoad.type === RoadType.CIRCLE
+                          ? "Circle"
+                          : "Straight"}
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -783,6 +887,9 @@ export default function RoadBuilder() {
                     onValueChange={(value) => updateSelectedRoadWidth(value[0])}
                   />
                 </div>
+                <Button variant="destructive" size="sm" className="w-full justify-start" onClick={deleteSelectedRoad}>
+                  <Trash2 size={16} className="mr-2" /> Delete Road
+                </Button>
               </div>
             </div>
           )}
@@ -797,32 +904,6 @@ export default function RoadBuilder() {
               <Button variant="outline" size="sm" className="w-full justify-start" onClick={clearCanvas}>
                 <Trash2 size={16} className="mr-2" /> Clear All
               </Button>
-              <Button variant="outline" size="sm" className="w-full justify-start" onClick={toggleFullscreen}>
-                {fullscreen ? <Minimize2 size={16} className="mr-2" /> : <Maximize2 size={16} className="mr-2" />}
-                {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Instructions */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Instructions</h3>
-            <div className="text-xs text-gray-600 space-y-2 bg-gray-50 p-3 rounded">
-              <p>
-                <strong>Nodes:</strong> Click to place connected nodes
-              </p>
-              <p>
-                <strong>Lines:</strong> Click and drag to draw roads
-              </p>
-              <p>
-                <strong>Pan:</strong> Click and drag to move map
-              </p>
-              <p>
-                <strong>Marker:</strong> Click roads to place marker
-              </p>
-              <p>
-                <strong>Tips:</strong> Hold Shift for snapping, 'C' for curves
-              </p>
             </div>
           </div>
         </div>
