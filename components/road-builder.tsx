@@ -17,7 +17,6 @@ import {
   Ruler,
   ZoomIn,
   ZoomOut,
-  Circle,
   MousePointer,
 } from "lucide-react"
 
@@ -32,7 +31,7 @@ export default function RoadBuilder() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Updated states - added move and circle modes
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "move" | "circle">("nodes")
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "lines" | "pan" | "move">("nodes")
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentLine, setCurrentLine] = useState<{
     start: { x: number; y: number }
@@ -740,15 +739,6 @@ export default function RoadBuilder() {
                 <Minus size={20} />
                 <span className="text-xs">Lines</span>
               </Toggle>
-              <Toggle
-                pressed={drawingMode === "circle"}
-                onPressedChange={() => setDrawingMode("circle")}
-                aria-label="Circle mode"
-                className="flex flex-col items-center gap-1 h-16 col-span-2"
-              >
-                <Circle size={20} />
-                <span className="text-xs">Circle</span>
-              </Toggle>
             </div>
           </div>
 
@@ -858,38 +848,12 @@ export default function RoadBuilder() {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Selected Road</h3>
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 gap-2 text-xs">
                   <div className="bg-gray-50 p-2 rounded">
                     <div className="text-gray-500">Length</div>
                     <div className="font-medium">{calculateRoadLength(selectedRoad).toFixed(1)}m</div>
                   </div>
-                  <div className="bg-gray-50 p-2 rounded">
-                    <div className="text-gray-500">Type</div>
-                    <div className="font-medium">
-                      {selectedRoad.type === RoadType.CURVED
-                        ? "Curved"
-                        : selectedRoad.type === RoadType.CIRCLE
-                          ? "Circle"
-                          : "Straight"}
-                    </div>
-                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Width</span>
-                    <Badge variant="secondary">{selectedRoad.width}px</Badge>
-                  </div>
-                  <Slider
-                    value={[selectedRoad.width]}
-                    min={5}
-                    max={30}
-                    step={1}
-                    onValueChange={(value) => updateSelectedRoadWidth(value[0])}
-                  />
-                </div>
-                <Button variant="destructive" size="sm" className="w-full justify-start" onClick={deleteSelectedRoad}>
-                  <Trash2 size={16} className="mr-2" /> Delete Road
-                </Button>
               </div>
             </div>
           )}
