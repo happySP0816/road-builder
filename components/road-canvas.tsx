@@ -9,7 +9,7 @@ interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
   buildSession: BuildSession
-  drawingMode: "nodes" | "pan" | "move" | "select-node"
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -17,7 +17,8 @@ interface RoadCanvasProps {
   scaleMetersPerPixel: number
   selectedRoadId: string | null
   selectedNodeId: string | null
-  selectedNodeData: Node | null // Pass full selected node data
+  selectedNodeData: Node | null
+  connectingFromNodeId?: string | null
   panOffset: { x: number; y: number }
   zoom: number
   mousePosition: { x: number; y: number } | null
@@ -45,6 +46,7 @@ export default function RoadCanvas({
   selectedRoadId,
   selectedNodeId,
   selectedNodeData,
+  connectingFromNodeId,
   panOffset,
   zoom,
   mousePosition,
@@ -73,11 +75,10 @@ export default function RoadCanvas({
     return () => window.removeEventListener("resize", handleResize)
   }, [])
 
-  // New function to draw editable control points for a selected node
   const drawEditableControlPoints = (ctx: CanvasRenderingContext2D, selectedNode: Node | null, allRoads: Road[]) => {
     if (!selectedNode) return
 
-    ctx.strokeStyle = "#fb923c" // Orange for edit handles
+    ctx.strokeStyle = "#fb923c"
     ctx.fillStyle = "#fb923c"
     ctx.lineWidth = 1 / zoom
 
@@ -94,18 +95,32 @@ export default function RoadCanvas({
       }
 
       if (controlPoint) {
-        // Draw line from node to handle
         ctx.beginPath()
         ctx.moveTo(selectedNode.x, selectedNode.y)
         ctx.lineTo(controlPoint.x, controlPoint.y)
         ctx.stroke()
 
-        // Draw handle
         ctx.beginPath()
         ctx.arc(controlPoint.x, controlPoint.y, 6 / zoom, 0, Math.PI * 2)
         ctx.fill()
       }
     })
+  }
+
+  const drawConnectionPreview = (ctx: CanvasRenderingContext2D) => {
+    if (!connectingFromNodeId || !mousePosition) return
+    
+    const fromNode = nodes.find(n => n.id === connectingFromNodeId)
+    if (!fromNode) return
+    
+    ctx.strokeStyle = "#3b82f6"
+    ctx.lineWidth = 2 / zoom
+    ctx.setLineDash([5 / zoom, 5 / zoom])
+    ctx.beginPath()
+    ctx.moveTo(fromNode.x, fromNode.y)
+    ctx.lineTo(mousePosition.x, mousePosition.y)
+    ctx.stroke()
+    ctx.setLineDash([])
   }
 
   useEffect(() => {
@@ -121,11 +136,14 @@ export default function RoadCanvas({
 
     drawGrid(ctx, canvas.width, canvas.height)
     roads.forEach((road) => drawRoad(ctx, road, road.id === selectedRoadId))
-    nodes.forEach((node) => drawNode(ctx, node, node.id === selectedNodeId))
+    nodes.forEach((node) => drawNode(ctx, node, node.id === selectedNodeId, node.id === connectingFromNodeId))
 
-    // Draw editable handles if a node is selected
     if (selectedNodeData) {
       drawEditableControlPoints(ctx, selectedNodeData, roads)
+    }
+
+    if (drawingMode === "connect") {
+      drawConnectionPreview(ctx)
     }
 
     if (buildSession.isActive) {
@@ -139,7 +157,9 @@ export default function RoadCanvas({
     buildSession,
     selectedRoadId,
     selectedNodeId,
-    selectedNodeData, // Add as dependency
+    selectedNodeData,
+    connectingFromNodeId,
+    drawingMode,
     panOffset,
     zoom,
     mousePosition,
@@ -173,9 +193,19 @@ export default function RoadCanvas({
     }
   }
 
-  const drawNode = (ctx: CanvasRenderingContext2D, node: Node | NodePoint, isSelected: boolean) => {
+  const drawNode = (ctx: CanvasRenderingContext2D, node: Node | NodePoint, isSelected: boolean, isConnecting?: boolean) => {
     const actualNode = node as Node
-    ctx.fillStyle = isSelected ? "#3b82f6" : (actualNode.connectedRoadIds?.length || 0) > 0 ? "#059669" : "#6b7280"
+    let fillColor = "#6b7280" // Default gray
+    
+    if (isConnecting) {
+      fillColor = "#3b82f6" // Blue for connecting node
+    } else if (isSelected) {
+      fillColor = "#3b82f6" // Blue for selected
+    } else if ((actualNode.connectedRoadIds?.length || 0) > 0) {
+      fillColor = "#059669" // Green for connected nodes
+    }
+    
+    ctx.fillStyle = fillColor
     ctx.strokeStyle = "#9ca3af"
     ctx.lineWidth = 2 / zoom
     ctx.beginPath()
@@ -183,8 +213,8 @@ export default function RoadCanvas({
     ctx.fill()
     ctx.stroke()
 
-    if (isSelected) {
-      ctx.strokeStyle = "#3b82f6"
+    if (isSelected || isConnecting) {
+      ctx.strokeStyle = isConnecting ? "#3b82f6" : "#3b82f6"
       ctx.lineWidth = 2 / zoom
       ctx.setLineDash([3 / zoom, 3 / zoom])
       ctx.beginPath()
@@ -220,7 +250,6 @@ export default function RoadCanvas({
       ctx.quadraticCurveTo(cpX, cpY, road.end.x, road.end.y)
       ctx.stroke()
     } else {
-      // Straight
       ctx.beginPath()
       ctx.moveTo(road.start.x, road.start.y)
       ctx.lineTo(road.end.x, road.end.y)
@@ -312,10 +341,8 @@ export default function RoadCanvas({
     ctx.strokeStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
     ctx.fillStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
 
-    // Draw existing nodes in the session and their control points if they exist
     session.nodes.forEach((node) => {
       drawNode(ctx, node, false)
-      // Draw cp1 handle (incoming curve to this node)
       if (node.cp1 && (node.cp1.x !== node.x || node.cp1.y !== node.y)) {
         ctx.beginPath()
         ctx.arc(node.cp1.x, node.cp1.y, 4 / zoom, 0, Math.PI * 2)
@@ -327,7 +354,6 @@ export default function RoadCanvas({
         ctx.stroke()
         ctx.setLineDash([])
       }
-      // Draw cp2 handle (outgoing curve from this node)
       if (node.cp2 && (node.cp2.x !== node.x || node.cp2.y !== node.y)) {
         ctx.beginPath()
         ctx.arc(node.cp2.x, node.cp2.y, 4 / zoom, 0, Math.PI * 2)
@@ -341,7 +367,6 @@ export default function RoadCanvas({
       }
     })
 
-    // Draw completed segments within the current build session
     for (let i = 0; i < session.nodes.length - 1; i++) {
       const p1 = session.nodes[i]
       const p2 = session.nodes[i + 1]
@@ -359,7 +384,6 @@ export default function RoadCanvas({
       ctx.stroke()
     }
 
-    // Draw the preview line/curve to the current mouse position
     if (currentMousePos) {
       const lastPoint = session.nodes[session.nodes.length - 1]
       ctx.beginPath()
@@ -389,7 +413,21 @@ export default function RoadCanvas({
     if (drawingMode === "pan") return "cursor-grab"
     if (drawingMode === "select-node") return "cursor-pointer"
     if (drawingMode === "nodes") return "cursor-crosshair"
+    if (drawingMode === "connect") return "cursor-pointer"
+    if (drawingMode === "disconnect") return "cursor-pointer"
     return "cursor-default"
+  }
+
+  const getModeDisplayName = () => {
+    switch (drawingMode) {
+      case "nodes": return "Build"
+      case "pan": return "Pan"
+      case "move": return "Select Roads"
+      case "select-node": return "Select Nodes"
+      case "connect": return "Connect"
+      case "disconnect": return "Disconnect"
+      default: return drawingMode
+    }
   }
 
   return (
@@ -397,8 +435,9 @@ export default function RoadCanvas({
       <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
 
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
-        Mode: {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)}
+        Mode: {getModeDisplayName()}
         {buildSession.isActive && " (Building...)"}
+        {connectingFromNodeId && " (Click target node)"}
       </div>
 
       <div className="absolute top-4 right-4 flex flex-col gap-2">

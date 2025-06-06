@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "move" | "select-node"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node") => void
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -22,6 +22,30 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
           >
             <MousePointer2 size={20} />
             <span className="text-xs">Build</span>
+          </Toggle>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Connection Tools</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Toggle
+            pressed={drawingMode === "connect"}
+            onPressedChange={() => onDrawingModeChange("connect")}
+            aria-label="Connect roads"
+            className="flex flex-col items-center gap-1 h-16"
+          >
+            <Link size={20} />
+            <span className="text-xs">Connect</span>
+          </Toggle>
+          <Toggle
+            pressed={drawingMode === "disconnect"}
+            onPressedChange={() => onDrawingModeChange("disconnect")}
+            aria-label="Disconnect roads"
+            className="flex flex-col items-center gap-1 h-16"
+          >
+            <Unlink size={20} />
+            <span className="text-xs">Disconnect</span>
           </Toggle>
         </div>
       </div>
