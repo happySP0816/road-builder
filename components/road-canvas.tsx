@@ -9,7 +9,7 @@ interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
   buildSession: BuildSession
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node"
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -19,7 +19,6 @@ interface RoadCanvasProps {
   selectedNodeId: string | null
   selectedNodeData: Node | null
   connectingFromNodeId?: string | null
-  selectedRoadForDisconnect?: string | null
   panOffset: { x: number; y: number }
   zoom: number
   mousePosition: { x: number; y: number } | null
@@ -48,7 +47,6 @@ export default function RoadCanvas({
   selectedNodeId,
   selectedNodeData,
   connectingFromNodeId,
-  selectedRoadForDisconnect,
   panOffset,
   zoom,
   mousePosition,
@@ -137,7 +135,7 @@ export default function RoadCanvas({
     ctx.scale(zoom, zoom)
 
     drawGrid(ctx, canvas.width, canvas.height)
-    roads.forEach((road) => drawRoad(ctx, road, road.id === selectedRoadId, road.id === selectedRoadForDisconnect))
+    roads.forEach((road) => drawRoad(ctx, road, road.id === selectedRoadId))
     nodes.forEach((node) => drawNode(ctx, node, node.id === selectedNodeId, node.id === connectingFromNodeId))
 
     if (selectedNodeData) {
@@ -161,7 +159,6 @@ export default function RoadCanvas({
     selectedNodeId,
     selectedNodeData,
     connectingFromNodeId,
-    selectedRoadForDisconnect,
     drawingMode,
     panOffset,
     zoom,
@@ -227,15 +224,8 @@ export default function RoadCanvas({
     }
   }
 
-  const drawRoad = (ctx: CanvasRenderingContext2D, road: Road, isSelected: boolean, isSelectedForDisconnect?: boolean) => {
-    let strokeColor = "#374151"
-    if (isSelectedForDisconnect) {
-      strokeColor = "#ef4444" // Red for roads selected for disconnect
-    } else if (isSelected) {
-      strokeColor = "#3b82f6" // Blue for selected roads
-    }
-    
-    ctx.strokeStyle = strokeColor
+  const drawRoad = (ctx: CanvasRenderingContext2D, road: Road, isSelected: boolean) => {
+    ctx.strokeStyle = isSelected ? "#3b82f6" : "#374151"
     ctx.lineWidth = road.width / zoom
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
@@ -268,7 +258,7 @@ export default function RoadCanvas({
 
     if (showRoadLengths) drawRoadLength(ctx, road)
 
-    if (isSelected && !isSelectedForDisconnect) {
+    if (isSelected) {
       ctx.globalAlpha = 0.4
       ctx.lineWidth = (road.width + 4) / zoom
       if (road.type === RoadType.BEZIER && road.controlPoints) {
@@ -425,7 +415,6 @@ export default function RoadCanvas({
     if (drawingMode === "nodes") return "cursor-crosshair"
     if (drawingMode === "connect") return "cursor-pointer"
     if (drawingMode === "disconnect") return "cursor-pointer"
-    if (drawingMode === "add-node") return "cursor-crosshair"
     return "cursor-default"
   }
 
@@ -437,16 +426,8 @@ export default function RoadCanvas({
       case "select-node": return "Select Nodes"
       case "connect": return "Connect"
       case "disconnect": return "Disconnect"
-      case "add-node": return "Add Node"
       default: return drawingMode
     }
-  }
-
-  const getStatusMessage = () => {
-    if (connectingFromNodeId) return " (Click target node or same node for circle)"
-    if (selectedRoadForDisconnect) return " (Click again to delete road)"
-    if (buildSession.isActive) return " (Space: curve, Enter: finish, Esc: cancel)"
-    return ""
   }
 
   return (
@@ -454,7 +435,9 @@ export default function RoadCanvas({
       <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
 
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
-        Mode: {getModeDisplayName()}{getStatusMessage()}
+        Mode: {getModeDisplayName()}
+        {buildSession.isActive && " (Building...)"}
+        {connectingFromNodeId && " (Click target node)"}
       </div>
 
       <div className="absolute top-4 right-4 flex flex-col gap-2">
