@@ -274,14 +274,10 @@ export default function RoadBuilder() {
 
             if (isLastSegmentBezier && lastPointInSession.cp2) {
               const cp2ForStartOfClosingRoad = lastPointInSession.cp2
-              
-              // Create adjustment variable for curved road transitions
-              const adjustment = 0.3 // This controls how much the control point is adjusted for smooth curves
               const cp1ForEndOfClosingRoad = {
-                x: firstNodeInSession.x - (lastPointInSession.cp2.x - lastPointInSession.x) * adjustment,
-                y: firstNodeInSession.y - (lastPointInSession.cp2.y - lastPointInSession.y) * adjustment,
+                x: firstNodeInSession.x - (lastPointInSession.cp2.x - lastPointInSession.x),
+                y: firstNodeInSession.y - (lastPointInSession.cp2.y - lastPointInSession.y),
               }
-              
               closingRoad = {
                 id: roadId,
                 start: { x: lastPointInSession.x, y: lastPointInSession.y },
