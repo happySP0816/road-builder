@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect") => void
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -13,7 +13,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
     <div className="space-y-6">
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Toggle
             pressed={drawingMode === "nodes"}
             onPressedChange={() => onDrawingModeChange("nodes")}
@@ -22,6 +22,15 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
           >
             <MousePointer2 size={20} />
             <span className="text-xs">Build</span>
+          </Toggle>
+          <Toggle
+            pressed={drawingMode === "add-node"}
+            onPressedChange={() => onDrawingModeChange("add-node")}
+            aria-label="Add node"
+            className="flex flex-col items-center gap-1 h-16"
+          >
+            <Plus size={20} />
+            <span className="text-xs">Add Node</span>
           </Toggle>
         </div>
       </div>
