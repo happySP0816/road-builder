@@ -211,6 +211,9 @@ export default function RoadBuilder() {
         zoomIn()
       } else if (e.key === "-") {
         zoomOut()
+      } else if (e.ctrlKey && e.key === "z") {
+        e.preventDefault()
+        removeLastElement()
       }
     }
 
@@ -725,18 +728,6 @@ export default function RoadBuilder() {
     setIsDrawing(false)
   }
 
-  // Handle build completion button click
-  const handleBuildComplete = (e: MouseEvent<HTMLCanvasElement>) => {
-    e.stopPropagation()
-    completeBuildSession()
-  }
-
-  // Handle build cancel button click
-  const handleBuildCancel = (e: MouseEvent<HTMLCanvasElement>) => {
-    e.stopPropagation()
-    cancelBuildSession()
-  }
-
   // Zoom functions
   const zoomIn = () => {
     setZoom((prev) => Math.min(prev * 1.2, 5))
@@ -821,48 +812,6 @@ export default function RoadBuilder() {
       ctx.arc(node.x, node.y, 8, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
-
-      // Draw build complete button on last node
-      if (index === buildSession.nodes.length - 1 && buildSession.nodes.length >= 2) {
-        // Complete button (green checkmark)
-        ctx.fillStyle = "#10b981"
-        ctx.strokeStyle = "#ffffff"
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.arc(node.x + 25, node.y - 15, 12, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-
-        // Checkmark
-        ctx.strokeStyle = "#ffffff"
-        ctx.lineWidth = 3
-        ctx.lineCap = "round"
-        ctx.beginPath()
-        ctx.moveTo(node.x + 25 - 4, node.y - 15)
-        ctx.lineTo(node.x + 25 - 1, node.y - 15 + 3)
-        ctx.lineTo(node.x + 25 + 4, node.y - 15 - 3)
-        ctx.stroke()
-
-        // Cancel button (red X)
-        ctx.fillStyle = "#ef4444"
-        ctx.strokeStyle = "#ffffff"
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.arc(node.x + 25, node.y + 15, 12, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-
-        // X mark
-        ctx.strokeStyle = "#ffffff"
-        ctx.lineWidth = 3
-        ctx.lineCap = "round"
-        ctx.beginPath()
-        ctx.moveTo(node.x + 25 - 4, node.y + 15 - 4)
-        ctx.lineTo(node.x + 25 + 4, node.y + 15 + 4)
-        ctx.moveTo(node.x + 25 + 4, node.y + 15 - 4)
-        ctx.lineTo(node.x + 25 - 4, node.y + 15 + 4)
-        ctx.stroke()
-      }
     })
 
     // Draw roads between nodes in build session
@@ -923,6 +872,42 @@ export default function RoadBuilder() {
 
       ctx.setLineDash([])
       ctx.globalAlpha = 1
+
+      // Calculate and display preview distance
+      let previewDistance: number
+      if (buildSession.roadType === RoadType.STRAIGHT) {
+        const dx = mousePosition.x - lastNode.x
+        const dy = mousePosition.y - lastNode.y
+        previewDistance = Math.sqrt(dx * dx + dy * dy) * scaleMetersPerPixel
+      } else {
+        const controlPointX = (lastNode.x + mousePosition.x) / 2
+        const controlPointY = (lastNode.y + mousePosition.y) / 2
+        const offsetX = (mousePosition.y - lastNode.y) * 0.5
+        const offsetY = (lastNode.x - mousePosition.x) * 0.5
+        const cp = { x: controlPointX + offsetX, y: controlPointY + offsetY }
+
+        const d1 = Math.sqrt((cp.x - lastNode.x) ** 2 + (cp.y - lastNode.y) ** 2)
+        const d2 = Math.sqrt((mousePosition.x - cp.x) ** 2 + (mousePosition.y - cp.y) ** 2)
+        previewDistance = (d1 + d2) * scaleMetersPerPixel
+      }
+
+      // Draw distance label
+      const midX = (lastNode.x + mousePosition.x) / 2
+      const midY = (lastNode.y + mousePosition.y) / 2
+
+      ctx.fillStyle = "rgba(59, 130, 246, 0.9)"
+      ctx.strokeStyle = "#ffffff"
+      ctx.lineWidth = 1
+      const textWidth = 60
+      const textHeight = 20
+      ctx.fillRect(midX - textWidth / 2, midY - textHeight / 2, textWidth, textHeight)
+      ctx.strokeRect(midX - textWidth / 2, midY - textHeight / 2, textWidth, textHeight)
+
+      ctx.fillStyle = "#ffffff"
+      ctx.font = "12px Arial"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText(`${previewDistance.toFixed(1)}m`, midX, midY)
     }
   }
 
@@ -1316,6 +1301,7 @@ export default function RoadBuilder() {
             <div>Enter/Space - Complete road</div>
             <div>Escape - Cancel/Clear selection</div>
             <div>Delete - Remove selected item</div>
+            <div>Ctrl+Z - Undo last</div>
           </div>
         </div>
       </div>
