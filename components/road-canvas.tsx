@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, type MouseEvent } from "react"
 import { Button } from "@/components/ui/button"
-import { Check, X, ZoomIn, ZoomOut } from "lucide-react"
+import { ZoomIn, ZoomOut } from "lucide-react"
 import { type Road, type Node, type BuildSession, RoadType, type NodePoint } from "@/lib/road-types"
 
 interface RoadCanvasProps {
@@ -149,7 +149,6 @@ export default function RoadCanvas({
     isActivelyDrawingCurve,
   ])
 
-  // ... (drawGrid, drawNode, drawRoad, calculateRoadLength, drawRoadLength remain the same)
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const gridSize = snapDistance
     ctx.strokeStyle = "#f3f4f6"
@@ -305,18 +304,17 @@ export default function RoadCanvas({
     ctx: CanvasRenderingContext2D,
     session: BuildSession,
     currentMousePos: { x: number; y: number } | null,
-    isDraggingCurve?: boolean, // This indicates if the current drag is shaping a curve
+    isDraggingCurve?: boolean,
   ) => {
     if (!session.isActive || session.nodes.length === 0) return
 
     ctx.lineWidth = session.roadWidth / zoom
-    // Use isDraggingCurve for the preview color, session.roadType for actual curve drawing
     ctx.strokeStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
     ctx.fillStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
 
     // Draw existing nodes in the session and their control points if they exist
     session.nodes.forEach((node) => {
-      drawNode(ctx, node, false) // Draw the node itself
+      drawNode(ctx, node, false)
       // Draw cp1 handle (incoming curve to this node)
       if (node.cp1 && (node.cp1.x !== node.x || node.cp1.y !== node.y)) {
         ctx.beginPath()
@@ -350,9 +348,6 @@ export default function RoadCanvas({
       ctx.beginPath()
       ctx.moveTo(p1.x, p1.y)
 
-      // Check if this specific segment should be bezier based on its control points
-      // A segment is bezier if p1.cp2 is defined AND p2.cp1 is defined
-      // AND they are not the same as their respective node positions (indicating actual curve)
       const segmentIsBezier =
         p1.cp2 && p2.cp1 && (p1.cp2.x !== p1.x || p1.cp2.y !== p1.y || p2.cp1.x !== p2.x || p2.cp1.y !== p2.y)
 
@@ -370,9 +365,7 @@ export default function RoadCanvas({
       ctx.beginPath()
       ctx.moveTo(lastPoint.x, lastPoint.y)
 
-      // session.roadType here reflects the type of segment being actively previewed/dragged
       if (session.roadType === RoadType.BEZIER && lastPoint.cp2 && isDraggingCurve) {
-        // If actively dragging a curve, use the last point's cp2 and derive a temporary cp1 for the mouse
         const tempCp1ForMouse = {
           x: currentMousePos.x - (lastPoint.cp2.x - lastPoint.x),
           y: currentMousePos.y - (lastPoint.cp2.y - lastPoint.y),
@@ -386,7 +379,6 @@ export default function RoadCanvas({
           currentMousePos.y,
         )
       } else {
-        // If not actively dragging a curve (i.e., session.roadType is STRAIGHT or not dragging), draw a straight line
         ctx.lineTo(currentMousePos.x, currentMousePos.y)
       }
       ctx.stroke()
@@ -420,19 +412,6 @@ export default function RoadCanvas({
           {(zoom * 100).toFixed(0)}%
         </Button>
       </div>
-
-      {buildSession.isActive && buildSession.nodes.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border flex gap-2">
-          <Button size="sm" onClick={onCompleteBuildSession} className="bg-green-600 hover:bg-green-700">
-            <Check size={16} className="mr-1" />
-            Finish Path
-          </Button>
-          <Button size="sm" variant="outline" onClick={onCancelBuildSession}>
-            <X size={16} className="mr-1" />
-            Cancel
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

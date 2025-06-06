@@ -54,10 +54,9 @@ export default function RoadBuilder() {
   const [isDraggingNode, setIsDraggingNode] = useState(false)
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [isDraggingNewPointHandle, setIsDraggingNewPointHandle] = useState(false)
-  // New state for dragging existing curve control points
   const [draggedControlPointInfo, setDraggedControlPointInfo] = useState<{
     roadId: string
-    pointIndex: 0 | 1 // 0 for start control point, 1 for end
+    pointIndex: 0 | 1
   } | null>(null)
 
   const completeBuildSession = useCallback(() => {
@@ -122,7 +121,6 @@ export default function RoadBuilder() {
     return null
   }
 
-  // New helper function to find a clickable control point handle
   const findNearbyControlPoint = (worldCoords: { x: number; y: number }): {
     roadId: string
     pointIndex: 0 | 1
@@ -154,9 +152,9 @@ export default function RoadBuilder() {
   }
 
   const findRoadAtPosition = (worldCoords: { x: number; y: number }): Road | null => {
-    const clickTolerance = 5 / zoom // Tolerance in world units
+    const clickTolerance = 5 / zoom
     for (const road of roads) {
-      const roadHalfWidth = road.width / 2 / zoom // Road width in world units
+      const roadHalfWidth = road.width / 2 / zoom
       const effectiveTolerance = roadHalfWidth + clickTolerance
 
       if (road.type === RoadType.STRAIGHT) {
@@ -164,7 +162,6 @@ export default function RoadBuilder() {
           return road
         }
       } else if (road.type === RoadType.BEZIER && road.controlPoints) {
-        // Sample points along the bezier curve for hit detection
         const samples = 20
         let p0 = road.start
         for (let i = 1; i <= samples; i++) {
@@ -254,96 +251,89 @@ export default function RoadBuilder() {
 
       if (currentSession.isActive) {
         const firstNodeInSession = currentSession.nodes[0]
+        
+        // Check for closing the path by clicking on the first node
         if (
           snappedPos.snappedToNodeId &&
           snappedPos.snappedToNodeId === firstNodeInSession.id &&
-          currentSession.nodes.length > 0
+          currentSession.nodes.length > 2
         ) {
-          if (currentSession.nodes.length === 1) {
-            cancelBuildSession()
-            return
-          } else if (currentSession.nodes.length >= 2) {
-            const lastPointInSession = currentSession.nodes[currentSession.nodes.length - 1]
-            const roadId = `road-${Date.now()}`
-            let closingRoad: Road
+          const lastPointInSession = currentSession.nodes[currentSession.nodes.length - 1]
+          const roadId = `road-${Date.now()}`
+          let closingRoad: Road
 
-            // Determine road type for closing segment based on whether the last segment was actively made a bezier
-            // For simplicity, if the session's overall roadType (from last drag) is BEZIER, try to make closing segment bezier.
-            // A more robust approach might involve checking if the user explicitly wants a curved closure.
-            const isLastSegmentBezier = buildSessionRef.current.roadType === RoadType.BEZIER
+          const isLastSegmentBezier = buildSessionRef.current.roadType === RoadType.BEZIER
 
-            if (isLastSegmentBezier && lastPointInSession.cp2) {
-              const cp2ForStartOfClosingRoad = lastPointInSession.cp2
-              const cp1ForEndOfClosingRoad = {
-                x: firstNodeInSession.x - (lastPointInSession.cp2.x - lastPointInSession.x),
-                y: firstNodeInSession.y - (lastPointInSession.cp2.y - lastPointInSession.y),
-              }
-              closingRoad = {
-                id: roadId,
-                start: { x: lastPointInSession.x, y: lastPointInSession.y },
-                end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
-                startNodeId: lastPointInSession.id,
-                endNodeId: firstNodeInSession.id,
-                type: RoadType.BEZIER,
-                width: currentSession.roadWidth,
-                controlPoints: [cp2ForStartOfClosingRoad, cp1ForEndOfClosingRoad],
-              }
-            } else {
-              closingRoad = {
-                id: roadId,
-                start: { x: lastPointInSession.x, y: lastPointInSession.y },
-                end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
-                startNodeId: lastPointInSession.id,
-                endNodeId: firstNodeInSession.id,
-                type: RoadType.STRAIGHT,
-                width: currentSession.roadWidth,
-              }
+          if (isLastSegmentBezier && lastPointInSession.cp2) {
+            const cp2ForStartOfClosingRoad = lastPointInSession.cp2
+            const cp1ForEndOfClosingRoad = {
+              x: firstNodeInSession.x - (lastPointInSession.cp2.x - lastPointInSession.x),
+              y: firstNodeInSession.y - (lastPointInSession.cp2.y - lastPointInSession.y),
             }
-            setRoads((prev) => [...prev, closingRoad])
-            setNodes((prevNodes) =>
-              prevNodes.map((n) => {
-                if (n.id === lastPointInSession.id || n.id === firstNodeInSession.id) {
-                  return { ...n, connectedRoadIds: [...n.connectedRoadIds, roadId] }
-                }
-                return n
-              }),
-            )
-            completeBuildSession()
-            return
+            closingRoad = {
+              id: roadId,
+              start: { x: lastPointInSession.x, y: lastPointInSession.y },
+              end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
+              startNodeId: lastPointInSession.id,
+              endNodeId: firstNodeInSession.id,
+              type: RoadType.BEZIER,
+              width: currentSession.roadWidth,
+              controlPoints: [cp2ForStartOfClosingRoad, cp1ForEndOfClosingRoad],
+            }
+          } else {
+            closingRoad = {
+              id: roadId,
+              start: { x: lastPointInSession.x, y: lastPointInSession.y },
+              end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
+              startNodeId: lastPointInSession.id,
+              endNodeId: firstNodeInSession.id,
+              type: RoadType.STRAIGHT,
+              width: currentSession.roadWidth,
+            }
           }
-        } else {
-          const existingNodeInfo = snappedPos.snappedToNodeId
-            ? nodes.find((n) => n.id === snappedPos.snappedToNodeId)
-            : null
-          const newNodeId =
-            snappedPos.snappedToNodeId || `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
-
-          const newPoint: NodePoint = {
-            id: newNodeId,
-            x: snappedPos.x,
-            y: snappedPos.y,
-            connectedRoadIds: existingNodeInfo ? existingNodeInfo.connectedRoadIds : [],
-            // Initialize cp1 and cp2 to the node's own position for straight line behavior by default
-            cp1: { x: snappedPos.x, y: snappedPos.y },
-            cp2: { x: snappedPos.x, y: snappedPos.y },
-          }
-
-          setBuildSession((prev) => ({
-            ...prev,
-            nodes: [...prev.nodes, newPoint],
-            roadType: RoadType.STRAIGHT, // Default to STRAIGHT for the new segment being started
-          }))
-          setIsDraggingNewPointHandle(true) // Allow dragging to define curve for this new point
+          setRoads((prev) => [...prev, closingRoad])
+          setNodes((prevNodes) =>
+            prevNodes.map((n) => {
+              if (n.id === lastPointInSession.id || n.id === firstNodeInSession.id) {
+                return { ...n, connectedRoadIds: [...n.connectedRoadIds, roadId] }
+              }
+              return n
+            }),
+          )
+          completeBuildSession()
+          return
         }
+
+        // Add new point to existing session
+        const existingNodeInfo = snappedPos.snappedToNodeId
+          ? nodes.find((n) => n.id === snappedPos.snappedToNodeId)
+          : null
+        const newNodeId =
+          snappedPos.snappedToNodeId || `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+
+        const newPoint: NodePoint = {
+          id: newNodeId,
+          x: snappedPos.x,
+          y: snappedPos.y,
+          connectedRoadIds: existingNodeInfo ? existingNodeInfo.connectedRoadIds : [],
+          cp1: { x: snappedPos.x, y: snappedPos.y },
+          cp2: { x: snappedPos.x, y: snappedPos.y },
+        }
+
+        setBuildSession((prev) => ({
+          ...prev,
+          nodes: [...prev.nodes, newPoint],
+          roadType: RoadType.STRAIGHT,
+        }))
+        setIsDraggingNewPointHandle(true)
       } else {
-        // No active session: start a new one.
+        // Start new session
         let startNodePoint: NodePoint
         const existingNode = snappedPos.snappedToNodeId ? nodes.find((n) => n.id === snappedPos.snappedToNodeId) : null
 
         if (existingNode) {
           startNodePoint = {
             ...existingNode,
-            // Ensure cp1 and cp2 are initialized if starting from existing node
             cp1: existingNode.cp1 || { x: existingNode.x, y: existingNode.y },
             cp2: existingNode.cp2 || { x: existingNode.x, y: existingNode.y },
           }
@@ -354,7 +344,6 @@ export default function RoadBuilder() {
             x: snappedPos.x,
             y: snappedPos.y,
             connectedRoadIds: [],
-            // Initialize cp1 and cp2 to the node's own position
             cp1: { x: snappedPos.x, y: snappedPos.y },
             cp2: { x: snappedPos.x, y: snappedPos.y },
           }
@@ -374,7 +363,7 @@ export default function RoadBuilder() {
         setBuildSession({
           nodes: [startNodePoint],
           isActive: true,
-          roadType: RoadType.STRAIGHT, // Start with STRAIGHT
+          roadType: RoadType.STRAIGHT,
           roadWidth: defaultRoadWidth,
           currentSegmentStartNodeIndex: 0,
         })
@@ -395,7 +384,6 @@ export default function RoadBuilder() {
       return
     }
 
-    // Handle dragging of an existing control point
     if (draggedControlPointInfo) {
       const { roadId, pointIndex } = draggedControlPointInfo
       setRoads((prevRoads) =>
@@ -408,7 +396,7 @@ export default function RoadBuilder() {
           return r
         }),
       )
-      return // Prevent other mouse move logic
+      return
     }
 
     if (isDraggingNode && draggedNodeId) {
@@ -427,7 +415,6 @@ export default function RoadBuilder() {
       return
     }
 
-    // ... (rest of handleMouseMove for build session remains the same)
     const currentSession = buildSessionRef.current
     if (
       drawingMode === "nodes" &&
@@ -441,20 +428,20 @@ export default function RoadBuilder() {
       const dx = worldCoords.x - currentPoint.x
       const dy = worldCoords.y - currentPoint.y
 
-      const newCp2 = { x: currentPoint.x + dx, y: currentPoint.y + dy } // Handle for outgoing curve
-      const newCp1ForCurrent = { x: currentPoint.x - dx, y: currentPoint.y - dy } // Mirrored handle for incoming curve to current point
+      const newCp2 = { x: currentPoint.x + dx, y: currentPoint.y + dy }
+      const newCp1ForCurrent = { x: currentPoint.x - dx, y: currentPoint.y - dy }
 
       setBuildSession((prev) => {
         const updatedNodes = [...prev.nodes]
         updatedNodes[currentPointIndex] = {
           ...updatedNodes[currentPointIndex],
-          cp1: newCp1ForCurrent, // Defines the incoming curve shape to this point
-          cp2: newCp2, // Defines the outgoing curve shape from this point
+          cp1: newCp1ForCurrent,
+          cp2: newCp2,
         }
         return {
           ...prev,
           nodes: updatedNodes,
-          roadType: RoadType.BEZIER, // Dragging implies bezier
+          roadType: RoadType.BEZIER,
         }
       })
     }
@@ -468,7 +455,7 @@ export default function RoadBuilder() {
 
     const currentSession = buildSessionRef.current
     const wasDraggingHandle = isDraggingNewPointHandle
-    setIsDraggingNewPointHandle(false) // Reset for next click/drag
+    setIsDraggingNewPointHandle(false)
 
     if (drawingMode === "nodes" && currentSession.isActive) {
       if (currentSession.nodes.length >= 2) {
@@ -503,9 +490,7 @@ export default function RoadBuilder() {
         const roadId = `road-${Date.now()}`
         let newRoad: Road
 
-        // currentSession.roadType reflects if the segment *just completed* was a bezier (due to drag)
         if (currentSession.roadType === RoadType.BEZIER && wasDraggingHandle) {
-          // Ensure cp2 of start and cp1 of end are used
           const cp2_start = secondLastPoint.cp2 || { x: secondLastPoint.x, y: secondLastPoint.y }
           const cp1_end = lastPoint.cp1 || { x: lastPoint.x, y: lastPoint.y }
           newRoad = {
@@ -519,7 +504,6 @@ export default function RoadBuilder() {
             controlPoints: [cp2_start, cp1_end],
           }
         } else {
-          // Explicitly straight line
           newRoad = {
             id: roadId,
             start: { x: secondLastPoint.x, y: secondLastPoint.y },
@@ -528,7 +512,6 @@ export default function RoadBuilder() {
             endNodeId: lastPoint.id,
             type: RoadType.STRAIGHT,
             width: currentSession.roadWidth,
-            // For straight roads, control points can be omitted or set to endpoints
             controlPoints: [
               { x: secondLastPoint.x, y: secondLastPoint.y },
               { x: lastPoint.x, y: lastPoint.y },
@@ -540,17 +523,16 @@ export default function RoadBuilder() {
         setNodes((prevNodes) =>
           prevNodes.map((n) => {
             if (n.id === secondLastPoint.id || n.id === lastPoint.id) {
-              // Update control points on the main nodes array as well
               const updatedNode = { ...n, connectedRoadIds: [...new Set([...n.connectedRoadIds, roadId])] }
               if (n.id === secondLastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
                 updatedNode.cp2 = newRoad.controlPoints[0]
               } else if (n.id === secondLastPoint.id && newRoad.type === RoadType.STRAIGHT) {
-                updatedNode.cp2 = { x: n.x, y: n.y } // Reset cp2 for straight
+                updatedNode.cp2 = { x: n.x, y: n.y }
               }
               if (n.id === lastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
                 updatedNode.cp1 = newRoad.controlPoints[1]
               } else if (n.id === lastPoint.id && newRoad.type === RoadType.STRAIGHT) {
-                updatedNode.cp1 = { x: n.x, y: n.y } // Reset cp1 for straight
+                updatedNode.cp1 = { x: n.x, y: n.y }
               }
               return updatedNode
             }
@@ -559,17 +541,11 @@ export default function RoadBuilder() {
         )
 
         setBuildSession((prevSession) => {
-          // The last point of the segment just added is now the first point of the new potential segment.
-          // We need to ensure its control points in the session are reset for a straight default.
           const updatedSessionNodes = prevSession.nodes.map((node, index) => {
             if (index === prevSession.nodes.length - 1) {
-              // If this is the last node in the session
               return {
                 ...node,
-                // Reset cp2 (outgoing) to its own position for a straight start to the next segment.
                 cp2: { x: node.x, y: node.y },
-                // If this node is the *only* node in the session (i.e., start of a brand new path),
-                // also reset its cp1. Otherwise, cp1 was set by the incoming segment.
                 cp1: prevSession.nodes.length === 1 ? { x: node.x, y: node.y } : node.cp1,
               }
             }
@@ -580,7 +556,7 @@ export default function RoadBuilder() {
             ...prevSession,
             nodes: updatedSessionNodes,
             currentSegmentStartNodeIndex: updatedSessionNodes.length - 1,
-            roadType: RoadType.STRAIGHT, // Default the next segment type to STRAIGHT
+            roadType: RoadType.STRAIGHT,
             isDraggingControlPoint: null,
           }
         })
@@ -592,7 +568,7 @@ export default function RoadBuilder() {
     const handleGlobalMouseMove = (event: globalThis.MouseEvent) => {
       if (
         isPanning ||
-        draggedControlPointInfo || // Add check for control point dragging
+        draggedControlPointInfo ||
         (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
         isDraggingNode
       ) {
@@ -602,7 +578,7 @@ export default function RoadBuilder() {
     const handleGlobalMouseUp = (event: globalThis.MouseEvent) => {
       if (
         isPanning ||
-        draggedControlPointInfo || // Add check for control point dragging
+        draggedControlPointInfo ||
         (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
         isDraggingNode
       ) {
@@ -625,7 +601,6 @@ export default function RoadBuilder() {
     }
   }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, panOffset, zoom])
 
-  // ... (calculateRoadLength, deleteNode, deleteRoad, clearCanvas, removeLastElement, zoom functions remain the same)
   const calculateRoadLength = (road: Road): number => {
     if (road.type === RoadType.BEZIER && road.controlPoints) {
       let len = 0
@@ -673,7 +648,7 @@ export default function RoadBuilder() {
     )
     if (selectedNodeId === nodeId) setSelectedNodeId(null)
     if (buildSessionRef.current.isActive && buildSessionRef.current.nodes.some((n) => n.id === nodeId)) {
-      cancelBuildSession() // Cancel build if a node in session is deleted
+      cancelBuildSession()
     }
   }
 
@@ -702,11 +677,9 @@ export default function RoadBuilder() {
   const removeLastElement = () => {
     const currentSession = buildSessionRef.current
     if (currentSession.isActive && currentSession.nodes.length > 0) {
-      // If only one point in session (the start point), cancel session
       if (currentSession.nodes.length === 1) {
         const startNodeId = currentSession.nodes[0].id
         cancelBuildSession()
-        // If this start node was newly created (not snapped), remove it from main nodes list
         const nodeToRemove = nodes.find((n) => n.id === startNodeId && n.connectedRoadIds.length === 0)
         if (nodeToRemove && !roads.some((r) => r.startNodeId === startNodeId || r.endNodeId === startNodeId)) {
           setNodes((prev) => prev.filter((n) => n.id !== startNodeId))
@@ -714,14 +687,13 @@ export default function RoadBuilder() {
         return
       }
 
-      // Remove the last segment and point from build session
       const roadToRemove = roads.find(
         (r) =>
           r.endNodeId === currentSession.nodes[currentSession.nodes.length - 1].id &&
           r.startNodeId === currentSession.nodes[currentSession.nodes.length - 2]?.id,
       )
       if (roadToRemove) {
-        deleteRoad(roadToRemove.id) // This updates node connections
+        deleteRoad(roadToRemove.id)
       }
 
       const lastPointRemoved = currentSession.nodes[currentSession.nodes.length - 1]
@@ -730,18 +702,16 @@ export default function RoadBuilder() {
       setBuildSession((prev) => ({
         ...prev,
         nodes: remainingNodesInSession,
-        roadType: remainingNodesInSession.length > 1 ? prev.roadType : RoadType.STRAIGHT, // Or infer from remaining segment
+        roadType: remainingNodesInSession.length > 1 ? prev.roadType : RoadType.STRAIGHT,
       }))
 
-      // If the removed point was a new node (not snapped) and now has no connections, remove it
       const nodeInMainList = nodes.find((n) => n.id === lastPointRemoved.id)
       if (
         nodeInMainList &&
         nodeInMainList.connectedRoadIds.length === 0 &&
         !roads.some((r) => r.startNodeId === lastPointRemoved.id || r.endNodeId === lastPointRemoved.id)
       ) {
-        // Check again after road deletion
-        const updatedNode = nodes.find((n) => n.id === lastPointRemoved.id) // Re-fetch node state
+        const updatedNode = nodes.find((n) => n.id === lastPointRemoved.id)
         if (updatedNode && updatedNode.connectedRoadIds.length === 0) {
           setNodes((prev) => prev.filter((n) => n.id !== lastPointRemoved.id))
         }
@@ -827,7 +797,7 @@ export default function RoadBuilder() {
             onDeleteRoad={deleteRoad}
             onDeleteNode={deleteNode}
             calculateRoadLength={calculateRoadLength}
-            onUpdateRoadWidth={onUpdateRoadWidth} // Pass the new handler
+            onUpdateRoadWidth={onUpdateRoadWidth}
           />
           <ActionsPanel onRemoveLastElement={removeLastElement} onClearCanvas={clearCanvas} />
         </div>
