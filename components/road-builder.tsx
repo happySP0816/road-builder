@@ -40,7 +40,7 @@ export default function RoadBuilder() {
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect">("nodes")
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node">("nodes")
   const [showRoadLengths, setShowRoadLengths] = useState(false)
   const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
   const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
@@ -61,6 +61,9 @@ export default function RoadBuilder() {
 
   // Connection mode state
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
+  
+  // Disconnect mode state - two-step selection
+  const [selectedRoadForDisconnect, setSelectedRoadForDisconnect] = useState<string | null>(null)
 
   const completeBuildSession = useCallback(() => {
     setBuildSession({
@@ -101,6 +104,7 @@ export default function RoadBuilder() {
       // Reset connection mode on Escape
       if (event.key === "Escape") {
         setConnectingFromNodeId(null)
+        setSelectedRoadForDisconnect(null)
       }
     }
     window.addEventListener("keydown", handleKeyDown)
@@ -218,6 +222,39 @@ export default function RoadBuilder() {
     
     if (!startNode || !endNode) return
     
+    // Allow circular roads (same start and end node)
+    if (startNodeId === endNodeId) {
+      // Create a circular road
+      const roadId = `road-${Date.now()}`
+      const radius = 50 // Default radius for circular road
+      
+      const newRoad: Road = {
+        id: roadId,
+        start: { x: startNode.x, y: startNode.y },
+        end: { x: startNode.x, y: startNode.y },
+        startNodeId: startNodeId,
+        endNodeId: endNodeId,
+        type: RoadType.BEZIER,
+        width: defaultRoadWidth,
+        controlPoints: [
+          { x: startNode.x + radius, y: startNode.y - radius },
+          { x: startNode.x - radius, y: startNode.y + radius }
+        ]
+      }
+      
+      setRoads(prev => [...prev, newRoad])
+      setNodes(prev => prev.map(node => {
+        if (node.id === startNodeId) {
+          return {
+            ...node,
+            connectedRoadIds: [...node.connectedRoadIds, roadId]
+          }
+        }
+        return node
+      }))
+      return
+    }
+    
     // Check if road already exists between these nodes
     const existingRoad = roads.find(road => 
       (road.startNodeId === startNodeId && road.endNodeId === endNodeId) ||
@@ -249,7 +286,7 @@ export default function RoadBuilder() {
     }))
   }
 
-  const disconnectRoadFromNode = (roadId: string, nodeId: string) => {
+  const disconnectRoadFromNode = (roadId: string) => {
     const road = roads.find(r => r.id === roadId)
     if (!road) return
     
@@ -266,6 +303,28 @@ export default function RoadBuilder() {
     if (selectedRoadId === roadId) {
       setSelectedRoadId(null)
     }
+    
+    // Clear disconnect selection
+    setSelectedRoadForDisconnect(null)
+  }
+
+  const createNode = (x: number, y: number) => {
+    const snappedPos = getSnappedPosition(x, y)
+    
+    // Don't create if snapping to existing node
+    if (snappedPos.snappedToNodeId) return
+    
+    const newNodeId = `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+    const newNode: Node = {
+      id: newNodeId,
+      x: snappedPos.x,
+      y: snappedPos.y,
+      connectedRoadIds: [],
+      cp1: { x: snappedPos.x, y: snappedPos.y },
+      cp2: { x: snappedPos.x, y: snappedPos.y },
+    }
+    
+    setNodes(prev => [...prev, newNode])
   }
 
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -278,6 +337,11 @@ export default function RoadBuilder() {
       return
     }
 
+    if (drawingMode === "add-node") {
+      createNode(worldCoords.x, worldCoords.y)
+      return
+    }
+
     if (drawingMode === "connect") {
       const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
       if (clickedNode) {
@@ -285,13 +349,9 @@ export default function RoadBuilder() {
           // Start connection from this node
           setConnectingFromNodeId(clickedNode.id)
           setSelectedNodeId(clickedNode.id)
-        } else if (connectingFromNodeId !== clickedNode.id) {
-          // Complete connection to this node
-          createRoadBetweenNodes(connectingFromNodeId, clickedNode.id)
-          setConnectingFromNodeId(null)
-          setSelectedNodeId(null)
         } else {
-          // Clicked same node, cancel connection
+          // Complete connection to this node (allow same node for circular roads)
+          createRoadBetweenNodes(connectingFromNodeId, clickedNode.id)
           setConnectingFromNodeId(null)
           setSelectedNodeId(null)
         }
@@ -305,16 +365,27 @@ export default function RoadBuilder() {
 
     if (drawingMode === "disconnect") {
       const clickedRoad = findRoadAtPosition(worldCoords)
-      const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
       
-      if (clickedRoad && clickedNode) {
-        // Disconnect this specific road from the node
-        if (clickedRoad.startNodeId === clickedNode.id || clickedRoad.endNodeId === clickedNode.id) {
-          disconnectRoadFromNode(clickedRoad.id, clickedNode.id)
+      if (!selectedRoadForDisconnect) {
+        // First click: select road to disconnect
+        if (clickedRoad) {
+          setSelectedRoadForDisconnect(clickedRoad.id)
+          setSelectedRoadId(clickedRoad.id)
         }
-      } else if (clickedRoad) {
-        // Just clicking on a road without a node - remove the entire road
-        disconnectRoadFromNode(clickedRoad.id, "")
+      } else {
+        // Second click: confirm deletion
+        if (clickedRoad && clickedRoad.id === selectedRoadForDisconnect) {
+          disconnectRoadFromNode(clickedRoad.id)
+        } else {
+          // Clicked different road or empty space, select new road or cancel
+          if (clickedRoad) {
+            setSelectedRoadForDisconnect(clickedRoad.id)
+            setSelectedRoadId(clickedRoad.id)
+          } else {
+            setSelectedRoadForDisconnect(null)
+            setSelectedRoadId(null)
+          }
+        }
       }
       return
     }
@@ -778,6 +849,7 @@ export default function RoadBuilder() {
     setSelectedNodeId(null)
     setSelectedRoadId(null)
     setConnectingFromNodeId(null)
+    setSelectedRoadForDisconnect(null)
   }
 
   const removeLastElement = () => {
@@ -867,6 +939,7 @@ export default function RoadBuilder() {
           selectedNodeId={selectedNodeId}
           selectedNodeData={selectedNodeData}
           connectingFromNodeId={connectingFromNodeId}
+          selectedRoadForDisconnect={selectedRoadForDisconnect}
           panOffset={panOffset}
           zoom={zoom}
           mousePosition={mousePosition}
