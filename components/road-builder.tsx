@@ -560,40 +560,17 @@ export default function RoadBuilder() {
 
         setBuildSession((prevSession) => {
           // The last point of the segment just added is now the first point of the new potential segment.
+          // We need to ensure its control points in the session are reset for a straight default.
           const updatedSessionNodes = prevSession.nodes.map((node, index) => {
             if (index === prevSession.nodes.length - 1) {
               // If this is the last node in the session
-              
-              // Calculate the length of the previous control point if it was a bezier
-              let newCp2 = { x: node.x, y: node.y } // Default to node position (length 0)
-              
-              if (prevSession.roadType === RoadType.BEZIER && node.cp2) {
-                // Calculate the length of the previous cp2
-                const prevCp2Length = Math.sqrt(
-                  Math.pow(node.cp2.x - node.x, 2) + Math.pow(node.cp2.y - node.y, 2)
-                )
-                
-                // If there was a meaningful control point (length > 0), create a new one with the same length
-                // but in the opposite direction to maintain smooth continuation
-                if (prevCp2Length > 0) {
-                  const prevCp2Direction = {
-                    x: (node.cp2.x - node.x) / prevCp2Length,
-                    y: (node.cp2.y - node.y) / prevCp2Length
-                  }
-                  
-                  // Set the new cp2 in the opposite direction with the same length
-                  newCp2 = {
-                    x: node.x - prevCp2Direction.x * prevCp2Length,
-                    y: node.y - prevCp2Direction.y * prevCp2Length
-                  }
-                }
-              }
-              
               return {
                 ...node,
-                cp2: newCp2, // Set the new outgoing control point
-                // Reset cp1 to node position for the start of a new segment
-                cp1: { x: node.x, y: node.y },
+                // Reset cp2 (outgoing) to its own position for a straight start to the next segment.
+                cp2: { x: node.x, y: node.y },
+                // If this node is the *only* node in the session (i.e., start of a brand new path),
+                // also reset its cp1. Otherwise, cp1 was set by the incoming segment.
+                cp1: prevSession.nodes.length === 1 ? { x: node.x, y: node.y } : node.cp1,
               }
             }
             return node
