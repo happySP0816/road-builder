@@ -10,16 +10,10 @@ interface RoadSettingsProps {
   scaleMetersPerPixel: number
   snapDistance: number
   curvedRoads: boolean
-  snapEnabled: boolean
-  showRoadLengths: boolean
-  showRoadNames: boolean
   onDefaultRoadWidthChange: (width: number) => void
   onScaleChange: (scale: number) => void
   onSnapDistanceChange: (distance: number) => void
   onCurvedRoadsChange: (curved: boolean) => void
-  onSnapEnabledChange: (enabled: boolean) => void
-  onShowRoadLengthsChange: (show: boolean) => void
-  onShowRoadNamesChange: (show: boolean) => void
 }
 
 export default function RoadSettings({
@@ -27,16 +21,10 @@ export default function RoadSettings({
   scaleMetersPerPixel,
   snapDistance,
   curvedRoads,
-  snapEnabled,
-  showRoadLengths,
-  showRoadNames,
   onDefaultRoadWidthChange,
   onScaleChange,
   onSnapDistanceChange,
   onCurvedRoadsChange,
-  onSnapEnabledChange,
-  onShowRoadLengthsChange,
-  onShowRoadNamesChange,
 }: RoadSettingsProps) {
   return (
     <div className="space-y-6">
