@@ -10,92 +10,92 @@ interface DrawingToolsProps {
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
   return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Drawing</h3>
+        <div className="grid grid-cols-1 gap-1">
           <Toggle
             pressed={drawingMode === "nodes"}
             onPressedChange={() => onDrawingModeChange("nodes")}
             aria-label="Build mode"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <MousePointer2 size={20} />
-            <span className="text-xs">Build</span>
+            <MousePointer2 size={16} />
+            <span>Build</span>
           </Toggle>
           <Toggle
             pressed={drawingMode === "add-node"}
             onPressedChange={() => onDrawingModeChange("add-node")}
             aria-label="Add node mode"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <Plus size={20} />
-            <span className="text-xs">Add Node</span>
+            <Plus size={16} />
+            <span>Add Node</span>
           </Toggle>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Polygon Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Polygon</h3>
+        <div className="grid grid-cols-1 gap-1">
           <Toggle
             pressed={drawingMode === "polygon"}
             onPressedChange={() => onDrawingModeChange("polygon")}
             aria-label="Draw polygon"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <Hexagon size={20} />
-            <span className="text-xs">Draw Polygon</span>
+            <Hexagon size={16} />
+            <span>Draw</span>
           </Toggle>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Connection Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Connect</h3>
+        <div className="grid grid-cols-1 gap-1">
           <Toggle
             pressed={drawingMode === "connect"}
             onPressedChange={() => onDrawingModeChange("connect")}
             aria-label="Connect roads"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <Link size={20} />
-            <span className="text-xs">Connect</span>
+            <Link size={16} />
+            <span>Connect</span>
           </Toggle>
           <Toggle
             pressed={drawingMode === "disconnect"}
             onPressedChange={() => onDrawingModeChange("disconnect")}
             aria-label="Disconnect roads"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <Unlink size={20} />
-            <span className="text-xs">Disconnect</span>
+            <Unlink size={16} />
+            <span>Disconnect</span>
           </Toggle>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Selection Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Select</h3>
+        <div className="grid grid-cols-1 gap-1">
           <Toggle
             pressed={drawingMode === "select"}
             onPressedChange={() => onDrawingModeChange("select")}
             aria-label="Select mode - select nodes, roads, and polygons"
-            className="flex flex-col items-center gap-1 h-16"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
           >
-            <MousePointer size={20} />
-            <span className="text-xs">Select All</span>
+            <MousePointer size={16} />
+            <span>Select All</span>
+          </Toggle>
+          <Toggle
+            pressed={drawingMode === "pan"}
+            onPressedChange={() => onDrawingModeChange("pan")}
+            aria-label="Pan mode"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
+          >
+            <Hand size={16} />
+            <span>Pan View</span>
           </Toggle>
         </div>
-        <Toggle
-          pressed={drawingMode === "pan"}
-          onPressedChange={() => onDrawingModeChange("pan")}
-          aria-label="Pan mode"
-          className="flex flex-col items-center gap-1 h-12 w-full"
-        >
-          <Hand size={20} />
-          <span className="text-xs">Pan View</span>
-        </Toggle>
       </div>
     </div>
   )

@@ -1221,7 +1221,7 @@ export default function RoadBuilder() {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Left Sidebar - Drawing Tools Only */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+      <div className="w-40 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <DrawingTools drawingMode={drawingMode} onDrawingModeChange={setDrawingMode} />
           <ActionsPanel onRemoveLastElement={removeLastElement} onClearCanvas={clearCanvas} />
