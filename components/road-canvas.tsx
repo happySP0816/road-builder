@@ -913,7 +913,7 @@ export default function RoadCanvas({
             >
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 blur-sm"></div>
               <span className="relative z-10 drop-shadow-sm">
-                {selectedPolygon.name || "🏷️ Add label"}
+                {selectedPolygon.name || "+ Add label"}
               </span>
               <div className="absolute inset-0 rounded-full bg-gradient-to-r from-white/10 to-white/5 group-hover:from-white/20 group-hover:to-white/10 transition-all duration-200"></div>
             </div>
