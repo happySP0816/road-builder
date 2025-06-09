@@ -1282,6 +1282,63 @@ export default function RoadBuilder() {
       {/* Right Sidebar - Settings and Edit Panels */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Always show Display Options */}
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Auto Snapping</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={snapEnabled}
+                      onChange={(e) => setSnapEnabled(e.target.checked)}
+                      className="mr-2"
+                    />
+                    <span className="text-xs">Snap</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Lengths</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showRoadLengths}
+                      onChange={(e) => setShowRoadLengths(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Names</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showRoadNames}
+                      onChange={(e) => setShowRoadNames(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Polygons</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showPolygons}
+                      onChange={(e) => setShowPolygons(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Show Road Settings only when Build tool is selected */}
           {drawingMode === "nodes" && (
             <RoadSettings
