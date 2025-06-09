@@ -653,8 +653,8 @@ export default function RoadCanvas({
       ctx.stroke()
     }
 
-    // Draw road name with length - only show if showRoadNames is true
-    if (showRoadNames && (road.name || showRoadLengths)) {
+    // Draw road name with length - only show if showRoadNames is true AND road is NOT selected
+    if (showRoadNames && !isSelected && (road.name || showRoadLengths)) {
       const length = calculateRoadLength(road)
       let displayText = ""
       
@@ -670,6 +670,12 @@ export default function RoadCanvas({
       if (displayText) {
         drawTextAlongPath(ctx, displayText, road)
       }
+    }
+    // If road is selected, only show length if showRoadLengths is true
+    else if (isSelected && showRoadLengths) {
+      const length = calculateRoadLength(road)
+      const displayText = `${length.toFixed(1)}m`
+      drawTextAlongPath(ctx, displayText, road)
     }
 
     if (isSelected || isSelectedForDisconnect) {
@@ -836,8 +842,8 @@ export default function RoadCanvas({
         Mode: {getModeDisplayName()}{getStatusMessage()}
       </div>
 
-      {/* Inline Road Name Editor - only show if showRoadNames is true */}
-      {selectedRoad && onUpdateRoadName && showRoadNames && (
+      {/* Inline Road Name Editor - only show if showRoadNames is true AND road is NOT selected */}
+      {selectedRoad && onUpdateRoadName && showRoadNames && !selectedRoadId && (
         <div
           className="absolute z-10"
           style={{
