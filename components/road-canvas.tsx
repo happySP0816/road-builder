@@ -832,7 +832,7 @@ const RoadCanvas = forwardRef<HTMLCanvasElement, RoadCanvasProps>(({
   const selectedPolygon = selectedPolygonId ? polygons.find(p => p.id === selectedPolygonId) : null
 
   return (
-    <div ref={containerRef} className="relative flex-1 bg-white">
+    <div ref={containerRef} className="relative w-full h-full bg-white">
       <canvas 
         ref={canvasRef} 
         onMouseDown={(e) => canvasRef.current && onMouseDown(canvasRef.current, e)} 
