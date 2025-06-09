@@ -236,7 +236,7 @@ export default function RoadCanvas({
     ctx.fill()
     ctx.stroke()
 
-    // Draw polygon name if it has one
+    // Draw polygon name if it has one - centered on the polygon
     if (polygon.name && polygon.name.trim() !== "") {
       // Calculate centroid for text placement
       let centroidX = 0
@@ -248,11 +248,16 @@ export default function RoadCanvas({
       centroidX /= polygon.points.length
       centroidY /= polygon.points.length
 
-      const fontSize = Math.max(14 / zoom, 10)
-      ctx.font = `${fontSize}px Arial`
+      const fontSize = Math.max(16 / zoom, 12)
+      ctx.font = `bold ${fontSize}px Arial`
       ctx.fillStyle = "#1f2937"
+      ctx.strokeStyle = "#ffffff"
+      ctx.lineWidth = 3 / zoom
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
+      
+      // Draw text with white outline for better visibility
+      ctx.strokeText(polygon.name, centroidX, centroidY)
       ctx.fillText(polygon.name, centroidX, centroidY)
     }
 
@@ -275,7 +280,28 @@ export default function RoadCanvas({
   const drawPolygonSession = (ctx: CanvasRenderingContext2D, session: PolygonSession, currentMousePos: { x: number; y: number } | null) => {
     if (!session.isActive || session.points.length === 0) return
 
-    ctx.strokeStyle = "#ef4444"
+    // Use the session's colors for preview
+    const hexToRgba = (hex: string, alpha: number) => {
+      const r = parseInt(hex.slice(1, 3), 16)
+      const g = parseInt(hex.slice(3, 5), 16)
+      const b = parseInt(hex.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`
+    }
+
+    // Draw preview fill if we have enough points
+    if (session.points.length >= 3 && currentMousePos) {
+      ctx.fillStyle = hexToRgba(session.fillColor, session.opacity * 0.5) // Reduced opacity for preview
+      ctx.beginPath()
+      ctx.moveTo(session.points[0].x, session.points[0].y)
+      for (let i = 1; i < session.points.length; i++) {
+        ctx.lineTo(session.points[i].x, session.points[i].y)
+      }
+      ctx.lineTo(currentMousePos.x, currentMousePos.y)
+      ctx.closePath()
+      ctx.fill()
+    }
+
+    ctx.strokeStyle = session.strokeColor
     ctx.lineWidth = 2 / zoom
     ctx.setLineDash([5 / zoom, 5 / zoom])
 
@@ -309,7 +335,7 @@ export default function RoadCanvas({
     ctx.setLineDash([])
 
     // Draw points
-    ctx.fillStyle = "#ef4444"
+    ctx.fillStyle = session.strokeColor
     for (const point of session.points) {
       ctx.beginPath()
       ctx.arc(point.x, point.y, 4 / zoom, 0, Math.PI * 2)
