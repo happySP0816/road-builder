@@ -358,7 +358,7 @@ export default function RoadCanvas({
     ctx.fill()
     ctx.stroke()
 
-    // Draw polygon name if it has one - centered on the polygon
+    // Draw polygon name if it has one - always show polygon names regardless of showRoadNames setting
     // Note: We'll handle inline editing separately, so we only draw the name when not editing
     if (polygon.name && polygon.name.trim() !== "" && editingPolygonName !== polygon.id) {
       // Calculate centroid for text placement
@@ -647,7 +647,7 @@ export default function RoadCanvas({
       ctx.stroke()
     }
 
-    // Draw road name with length in parentheses if enabled
+    // Draw road name with length - only show if showRoadNames is true
     if (showRoadNames && (road.name || showRoadLengths)) {
       const length = calculateRoadLength(road)
       let displayText = ""
@@ -830,8 +830,8 @@ export default function RoadCanvas({
         Mode: {getModeDisplayName()}{getStatusMessage()}
       </div>
 
-      {/* Inline Road Name Editor */}
-      {selectedRoad && onUpdateRoadName && (
+      {/* Inline Road Name Editor - only show if showRoadNames is true */}
+      {selectedRoad && onUpdateRoadName && showRoadNames && (
         <div
           className="absolute z-10"
           style={{
@@ -874,7 +874,7 @@ export default function RoadCanvas({
         </div>
       )}
 
-      {/* Inline Polygon Name Editor */}
+      {/* Inline Polygon Name Editor - always show for polygons regardless of showRoadNames */}
       {selectedPolygon && onUpdatePolygonName && (
         <div
           className="absolute z-10"
