@@ -13,7 +13,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
     <div className="space-y-6">
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Drawing Tools</h3>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <Toggle
             pressed={drawingMode === "nodes"}
             onPressedChange={() => onDrawingModeChange("nodes")}
@@ -52,7 +52,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
 
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Connection Tools</h3>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <Toggle
             pressed={drawingMode === "connect"}
             onPressedChange={() => onDrawingModeChange("connect")}
