@@ -1,7 +1,7 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Polygon } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon as Polygon } from "lucide-react"
 
 interface DrawingToolsProps {
   drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
