@@ -10,10 +10,16 @@ interface RoadSettingsProps {
   scaleMetersPerPixel: number
   snapDistance: number
   curvedRoads: boolean
+  snapEnabled: boolean
+  showRoadLengths: boolean
+  showRoadNames: boolean
   onDefaultRoadWidthChange: (width: number) => void
   onScaleChange: (scale: number) => void
   onSnapDistanceChange: (distance: number) => void
   onCurvedRoadsChange: (curved: boolean) => void
+  onSnapEnabledChange: (enabled: boolean) => void
+  onShowRoadLengthsChange: (show: boolean) => void
+  onShowRoadNamesChange: (show: boolean) => void
 }
 
 export default function RoadSettings({
@@ -21,10 +27,16 @@ export default function RoadSettings({
   scaleMetersPerPixel,
   snapDistance,
   curvedRoads,
+  snapEnabled,
+  showRoadLengths,
+  showRoadNames,
   onDefaultRoadWidthChange,
   onScaleChange,
   onSnapDistanceChange,
   onCurvedRoadsChange,
+  onSnapEnabledChange,
+  onShowRoadLengthsChange,
+  onShowRoadNamesChange,
 }: RoadSettingsProps) {
   return (
     <div className="space-y-6">
@@ -71,6 +83,32 @@ export default function RoadSettings({
               step={5}
               onValueChange={(value) => onSnapDistanceChange(value[0])}
             />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Auto Snapping</span>
+            <Toggle pressed={snapEnabled} onPressedChange={onSnapEnabledChange}>
+              <span className="text-xs">Snap</span>
+            </Toggle>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Show Lengths</span>
+            <Toggle pressed={showRoadLengths} onPressedChange={onShowRoadLengthsChange}>
+              <Ruler size={16} />
+            </Toggle>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Show Names</span>
+            <Toggle pressed={showRoadNames} onPressedChange={onShowRoadNamesChange}>
+              <Type size={16} />
+            </Toggle>
           </div>
         </div>
       </div>
