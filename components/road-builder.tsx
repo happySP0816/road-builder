@@ -80,7 +80,7 @@ export default function RoadBuilder() {
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon">("nodes")
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon">("nodes")
   const [showRoadLengths, setShowRoadLengths] = useState(false)
   const [showRoadNames, setShowRoadNames] = useState(true)
   const [showPolygons, setShowPolygons] = useState(true)
@@ -101,6 +101,12 @@ export default function RoadBuilder() {
     roadId: string
     pointIndex: 0 | 1
   } | null>(null)
+
+  // Polygon editing state
+  const [isDraggingPolygon, setIsDraggingPolygon] = useState(false)
+  const [isDraggingPolygonPoint, setIsDraggingPolygonPoint] = useState(false)
+  const [draggedPolygonPointIndex, setDraggedPolygonPointIndex] = useState<number | null>(null)
+  const [polygonDragOffset, setPolygonDragOffset] = useState({ x: 0, y: 0 })
 
   // Connection mode state
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
@@ -199,12 +205,17 @@ export default function RoadBuilder() {
         setConnectingFromNodeId(null)
         setSelectedRoadForDisconnect(null)
       }
+
+      // Delete selected polygon with Delete key
+      if (event.key === "Delete" && selectedPolygonId) {
+        deletePolygon(selectedPolygonId)
+      }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [completeBuildSession, cancelBuildSession, completePolygonSession, cancelPolygonSession, polygonSession.isActive])
+  }, [completeBuildSession, cancelBuildSession, completePolygonSession, cancelPolygonSession, polygonSession.isActive, selectedPolygonId])
 
   const getWorldCoordinates = (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent): { x: number; y: number } => {
     const canvas = document.querySelector("canvas")
@@ -299,6 +310,21 @@ export default function RoadBuilder() {
       const polygon = polygons[i]
       if (isPointInPolygon(worldCoords, polygon.points)) {
         return polygon
+      }
+    }
+    return null
+  }
+
+  const findPolygonPointAtPosition = (worldCoords: { x: number; y: number }, polygonId: string): number | null => {
+    const polygon = polygons.find(p => p.id === polygonId)
+    if (!polygon) return null
+
+    const tolerance = 8 / zoom
+    for (let i = 0; i < polygon.points.length; i++) {
+      const point = polygon.points[i]
+      const distance = Math.sqrt((point.x - worldCoords.x) ** 2 + (point.y - worldCoords.y) ** 2)
+      if (distance <= tolerance) {
+        return i
       }
     }
     return null
@@ -474,6 +500,40 @@ export default function RoadBuilder() {
             points: [...prev.points, worldCoords],
           }))
         }
+      }
+      return
+    }
+
+    if (drawingMode === "select-polygon") {
+      const clickedPolygon = findPolygonAtPosition(worldCoords)
+      if (clickedPolygon) {
+        setSelectedPolygonId(clickedPolygon.id)
+        setSelectedRoadId(null)
+        setSelectedNodeId(null)
+
+        // Check if clicking on a polygon point for editing
+        const pointIndex = findPolygonPointAtPosition(worldCoords, clickedPolygon.id)
+        if (pointIndex !== null) {
+          setIsDraggingPolygonPoint(true)
+          setDraggedPolygonPointIndex(pointIndex)
+        } else {
+          // Start dragging the entire polygon
+          setIsDraggingPolygon(true)
+          // Calculate offset from polygon centroid
+          let centroidX = 0, centroidY = 0
+          for (const point of clickedPolygon.points) {
+            centroidX += point.x
+            centroidY += point.y
+          }
+          centroidX /= clickedPolygon.points.length
+          centroidY /= clickedPolygon.points.length
+          setPolygonDragOffset({
+            x: worldCoords.x - centroidX,
+            y: worldCoords.y - centroidY
+          })
+        }
+      } else {
+        setSelectedPolygonId(null)
       }
       return
     }
@@ -711,6 +771,64 @@ export default function RoadBuilder() {
       return
     }
 
+    if (isDraggingPolygon && selectedPolygonId) {
+      const polygon = polygons.find(p => p.id === selectedPolygonId)
+      if (polygon) {
+        // Calculate new centroid position
+        const newCentroidX = worldCoords.x - polygonDragOffset.x
+        const newCentroidY = worldCoords.y - polygonDragOffset.y
+        
+        // Calculate current centroid
+        let currentCentroidX = 0, currentCentroidY = 0
+        for (const point of polygon.points) {
+          currentCentroidX += point.x
+          currentCentroidY += point.y
+        }
+        currentCentroidX /= polygon.points.length
+        currentCentroidY /= polygon.points.length
+        
+        // Calculate offset to apply to all points
+        const offsetX = newCentroidX - currentCentroidX
+        const offsetY = newCentroidY - currentCentroidY
+        
+        // Update polygon points
+        setPolygons(prev => prev.map(p => {
+          if (p.id === selectedPolygonId) {
+            return {
+              ...p,
+              points: p.points.map(point => ({
+                x: point.x + offsetX,
+                y: point.y + offsetY
+              })),
+              area: calculatePolygonArea(p.points.map(point => ({
+                x: point.x + offsetX,
+                y: point.y + offsetY
+              })), scaleMetersPerPixel)
+            }
+          }
+          return p
+        }))
+      }
+      return
+    }
+
+    if (isDraggingPolygonPoint && selectedPolygonId && draggedPolygonPointIndex !== null) {
+      const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+      setPolygons(prev => prev.map(p => {
+        if (p.id === selectedPolygonId) {
+          const newPoints = [...p.points]
+          newPoints[draggedPolygonPointIndex!] = { x: snappedPos.x, y: snappedPos.y }
+          return {
+            ...p,
+            points: newPoints,
+            area: calculatePolygonArea(newPoints, scaleMetersPerPixel)
+          }
+        }
+        return p
+      }))
+      return
+    }
+
     if (draggedControlPointInfo) {
       const { roadId, pointIndex } = draggedControlPointInfo
       setRoads((prevRoads) =>
@@ -779,6 +897,9 @@ export default function RoadBuilder() {
     setIsDraggingNode(false)
     setDraggedNodeId(null)
     setDraggedControlPointInfo(null)
+    setIsDraggingPolygon(false)
+    setIsDraggingPolygonPoint(false)
+    setDraggedPolygonPointIndex(null)
 
     const currentSession = buildSessionRef.current
     const wasDraggingHandle = isDraggingNewPointHandle
@@ -899,7 +1020,9 @@ export default function RoadBuilder() {
         isPanning ||
         draggedControlPointInfo ||
         (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
-        isDraggingNode
+        isDraggingNode ||
+        isDraggingPolygon ||
+        isDraggingPolygonPoint
       ) {
         handleMouseMove(event as any)
       }
@@ -909,7 +1032,9 @@ export default function RoadBuilder() {
         isPanning ||
         draggedControlPointInfo ||
         (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
-        isDraggingNode
+        isDraggingNode ||
+        isDraggingPolygon ||
+        isDraggingPolygonPoint
       ) {
         handleMouseUp(event as any)
       }
@@ -919,7 +1044,9 @@ export default function RoadBuilder() {
       isPanning ||
       draggedControlPointInfo ||
       (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
-      isDraggingNode
+      isDraggingNode ||
+      isDraggingPolygon ||
+      isDraggingPolygonPoint
     ) {
       window.addEventListener("mousemove", handleGlobalMouseMove)
       window.addEventListener("mouseup", handleGlobalMouseUp)
@@ -928,7 +1055,7 @@ export default function RoadBuilder() {
       window.removeEventListener("mousemove", handleGlobalMouseMove)
       window.removeEventListener("mouseup", handleGlobalMouseUp)
     }
-  }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, panOffset, zoom])
+  }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, isDraggingPolygon, isDraggingPolygonPoint, panOffset, zoom])
 
   const calculateRoadLength = (road: Road): number => {
     if (road.type === RoadType.BEZIER && road.controlPoints) {

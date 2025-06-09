@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon, Edit } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon") => void
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -37,7 +37,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
 
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Polygon Tools</h3>
-        <div className="grid grid-cols-1 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Toggle
             pressed={drawingMode === "polygon"}
             onPressedChange={() => onDrawingModeChange("polygon")}
@@ -45,7 +45,16 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
             className="flex flex-col items-center gap-1 h-16"
           >
             <Hexagon size={20} />
-            <span className="text-xs">Polygon</span>
+            <span className="text-xs">Draw</span>
+          </Toggle>
+          <Toggle
+            pressed={drawingMode === "select-polygon"}
+            onPressedChange={() => onDrawingModeChange("select-polygon")}
+            aria-label="Edit polygon"
+            className="flex flex-col items-center gap-1 h-16"
+          >
+            <Edit size={20} />
+            <span className="text-xs">Edit</span>
           </Toggle>
         </div>
       </div>

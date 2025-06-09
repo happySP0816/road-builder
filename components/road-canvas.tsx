@@ -11,7 +11,7 @@ interface RoadCanvasProps {
   polygons: Polygon[]
   buildSession: BuildSession
   polygonSession: PolygonSession
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -261,7 +261,7 @@ export default function RoadCanvas({
       ctx.fillText(polygon.name, centroidX, centroidY)
     }
 
-    // Draw selection highlight
+    // Draw selection highlight and edit handles
     if (isSelected) {
       ctx.strokeStyle = "#3b82f6"
       ctx.lineWidth = 1 / zoom
@@ -274,6 +274,20 @@ export default function RoadCanvas({
       ctx.closePath()
       ctx.stroke()
       ctx.setLineDash([])
+
+      // Draw edit handles on polygon points when in select-polygon mode
+      if (drawingMode === "select-polygon") {
+        ctx.fillStyle = "#3b82f6"
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 2 / zoom
+        
+        for (const point of polygon.points) {
+          ctx.beginPath()
+          ctx.arc(point.x, point.y, 6 / zoom, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+        }
+      }
     }
   }
 
@@ -671,6 +685,7 @@ export default function RoadCanvas({
     if (drawingMode === "disconnect") return "cursor-pointer"
     if (drawingMode === "add-node") return "cursor-crosshair"
     if (drawingMode === "polygon") return "cursor-crosshair"
+    if (drawingMode === "select-polygon") return "cursor-pointer"
     return "cursor-default"
   }
 
@@ -683,7 +698,8 @@ export default function RoadCanvas({
       case "connect": return "Connect"
       case "disconnect": return "Disconnect"
       case "add-node": return "Add Node"
-      case "polygon": return "Polygon"
+      case "polygon": return "Draw Polygon"
+      case "select-polygon": return "Edit Polygon"
       default: return drawingMode
     }
   }
@@ -697,6 +713,9 @@ export default function RoadCanvas({
         return " (Click first point to close polygon)"
       }
       return " (Click to add points)"
+    }
+    if (drawingMode === "select-polygon" && selectedPolygonId) {
+      return " (Drag polygon or points to edit)"
     }
     return ""
   }
