@@ -265,9 +265,11 @@ export default function RoadCanvas({
   const drawTextAlongPath = (ctx: CanvasRenderingContext2D, text: string, road: Road) => {
     if (!text || text.trim() === "") return
 
-    const fontSize = Math.max(12 / zoom, 8)
-    ctx.font = `${fontSize}px Arial`
-    ctx.fillStyle = "#374151"
+    const fontSize = Math.max(16 / zoom, 12)
+    ctx.font = `bold ${fontSize}px Arial`
+    ctx.fillStyle = "#1f2937"
+    ctx.strokeStyle = "#ffffff"
+    ctx.lineWidth = 3 / zoom
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
 
@@ -288,6 +290,8 @@ export default function RoadCanvas({
         ctx.rotate(Math.PI)
       }
       
+      // Draw text with white outline for better visibility
+      ctx.strokeText(text, 0, -road.width / 2 - 5 / zoom)
       ctx.fillText(text, 0, -road.width / 2 - 5 / zoom)
       ctx.restore()
     } else if (road.type === RoadType.BEZIER && road.controlPoints) {
@@ -324,6 +328,8 @@ export default function RoadCanvas({
         ctx.rotate(Math.PI)
       }
       
+      // Draw text with white outline for better visibility
+      ctx.strokeText(text, 0, -road.width / 2 - 5 / zoom)
       ctx.fillText(text, 0, -road.width / 2 - 5 / zoom)
       ctx.restore()
     }
@@ -835,7 +841,7 @@ export default function RoadCanvas({
         <div
           className="absolute z-10"
           style={{
-            left: `${getRoadNamePosition(selectedRoad).x - 100}px`,
+            left: `${getRoadNamePosition(selectedRoad).x}px`,
             top: `${getRoadNamePosition(selectedRoad).y}px`,
             transform: 'translateX(-50%)',
           }}
