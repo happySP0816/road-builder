@@ -231,6 +231,36 @@ export default function RoadCanvas({
     ctx.setLineDash([])
   }
 
+  // Helper function to calculate road length
+  const calculateRoadLength = (road: Road): number => {
+    if (road.type === RoadType.BEZIER && road.controlPoints) {
+      let len = 0
+      const steps = 20
+      let p0 = road.start
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps,
+          mt = 1 - t
+        const x =
+          mt * mt * mt * road.start.x +
+          3 * mt * mt * t * road.controlPoints[0].x +
+          3 * mt * t * t * road.controlPoints[1].x +
+          t * t * t * road.end.x
+        const y =
+          mt * mt * mt * road.start.y +
+          3 * mt * mt * t * road.controlPoints[0].y +
+          3 * mt * t * t * road.controlPoints[1].y +
+          t * t * t * road.end.y
+        const p1 = { x, y }
+        len += Math.sqrt(Math.pow(p1.x - p0.x, 2) + Math.pow(p1.y - p0.y, 2))
+        p0 = p1
+      }
+      return len * scaleMetersPerPixel
+    }
+    const dx = road.end.x - road.start.x
+    const dy = road.end.y - road.start.y
+    return Math.sqrt(dx * dx + dy * dy) * scaleMetersPerPixel
+  }
+
   // Helper function to draw text along a path
   const drawTextAlongPath = (ctx: CanvasRenderingContext2D, text: string, road: Road) => {
     if (!text || text.trim() === "") return
@@ -617,8 +647,24 @@ export default function RoadCanvas({
       ctx.stroke()
     }
 
-    if (showRoadLengths) drawRoadLength(ctx, road)
-    if (showRoadNames && road.name) drawTextAlongPath(ctx, road.name, road)
+    // Draw road name with length in parentheses if enabled
+    if (showRoadNames && (road.name || showRoadLengths)) {
+      const length = calculateRoadLength(road)
+      let displayText = ""
+      
+      if (road.name && road.name.trim() !== "") {
+        displayText = road.name
+        if (showRoadLengths) {
+          displayText += ` (${length.toFixed(1)}m)`
+        }
+      } else if (showRoadLengths) {
+        displayText = `${length.toFixed(1)}m`
+      }
+      
+      if (displayText) {
+        drawTextAlongPath(ctx, displayText, road)
+      }
+    }
 
     if (isSelected || isSelectedForDisconnect) {
       ctx.globalAlpha = 0.4
@@ -650,45 +696,6 @@ export default function RoadCanvas({
       }
       ctx.globalAlpha = 1.0
     }
-  }
-
-  const calculateRoadLength = (road: Road): number => {
-    if (road.type === RoadType.BEZIER && road.controlPoints) {
-      let len = 0
-      const steps = 20
-      let p0 = road.start
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps,
-          mt = 1 - t
-        const x =
-          mt * mt * mt * road.start.x +
-          3 * mt * mt * t * road.controlPoints[0].x +
-          3 * mt * t * t * road.controlPoints[1].x +
-          t * t * t * road.end.x
-        const y =
-          mt * mt * mt * road.start.y +
-          3 * mt * mt * t * road.controlPoints[0].y +
-          3 * mt * t * t * road.controlPoints[1].y +
-          t * t * t * road.end.y
-        const p1 = { x, y }
-        len += Math.sqrt(Math.pow(p1.x - p0.x, 2) + Math.pow(p1.y - p0.y, 2))
-        p0 = p1
-      }
-      return len * scaleMetersPerPixel
-    }
-    const dx = road.end.x - road.start.x
-    const dy = road.end.y - road.start.y
-    return Math.sqrt(dx * dx + dy * dy) * scaleMetersPerPixel
-  }
-
-  const drawRoadLength = (ctx: CanvasRenderingContext2D, road: Road) => {
-    const length = calculateRoadLength(road)
-    const midX = (road.start.x + road.end.x) / 2
-    const midY = (road.start.y + road.end.y) / 2
-    ctx.fillStyle = "rgba(0,0,0,0.7)"
-    ctx.font = `${10 / zoom}px Arial`
-    ctx.textAlign = "center"
-    ctx.fillText(`${length.toFixed(1)}m`, midX, midY - 5 / zoom)
   }
 
   const drawBuildSessionPreview = (
@@ -857,7 +864,7 @@ export default function RoadCanvas({
             </div>
           ) : (
             <div
-              className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-3 py-2 cursor-pointer hover:bg-white hover:border-blue-300 transition-colors min-w-[120px] text-center"
+              className="bg-transparent cursor-pointer min-w-[120px] text-center"
               onClick={() => handleRoadNameClick(selectedRoad.id, selectedRoad.name || "")}
             >
               <span className="text-sm font-medium text-gray-700">
@@ -899,7 +906,7 @@ export default function RoadCanvas({
             </div>
           ) : (
             <div
-              className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-3 py-2 cursor-pointer hover:bg-white hover:border-blue-300 transition-colors min-w-[120px] text-center"
+              className="bg-transparent cursor-pointer min-w-[120px] text-center"
               onClick={() => handlePolygonNameClick(selectedPolygon.id, selectedPolygon.name || "")}
             >
               <span className="text-sm font-medium text-gray-700">
