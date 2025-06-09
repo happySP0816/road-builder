@@ -1,7 +1,7 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { Eye, EyeOff, Ruler, Type, Magnet, MagnetOff } from "lucide-react"
+import { Eye, EyeOff, Ruler, Type, Magnet, Magnet as MagnetOff } from "lucide-react"
 
 interface DisplayOptionsProps {
   snapEnabled: boolean
