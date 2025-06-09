@@ -3,21 +3,25 @@
 import { useRef, useEffect, type MouseEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
+  polygons: Polygon[]
   buildSession: BuildSession
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node"
+  polygonSession: PolygonSession
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
   showRoadLengths: boolean
   showRoadNames: boolean
+  showPolygons: boolean
   scaleMetersPerPixel: number
   selectedRoadId: string | null
   selectedNodeId: string | null
+  selectedPolygonId: string | null
   selectedNodeData: Node | null
   connectingFromNodeId?: string | null
   selectedRoadForDisconnect?: string | null
@@ -30,6 +34,8 @@ interface RoadCanvasProps {
   onMouseUp: (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => void
   onCompleteBuildSession: () => void
   onCancelBuildSession: () => void
+  onCompletePolygonSession: () => void
+  onCancelPolygonSession: () => void
   onZoomIn: () => void
   onZoomOut: () => void
   onResetZoom: () => void
@@ -39,15 +45,19 @@ interface RoadCanvasProps {
 export default function RoadCanvas({
   nodes,
   roads,
+  polygons,
   buildSession,
+  polygonSession,
   drawingMode,
   snapDistance,
   defaultRoadWidth,
   showRoadLengths,
   showRoadNames,
+  showPolygons,
   scaleMetersPerPixel,
   selectedRoadId,
   selectedNodeId,
+  selectedPolygonId,
   selectedNodeData,
   connectingFromNodeId,
   selectedRoadForDisconnect,
@@ -60,6 +70,8 @@ export default function RoadCanvas({
   onMouseUp,
   onCompleteBuildSession,
   onCancelBuildSession,
+  onCompletePolygonSession,
+  onCancelPolygonSession,
   onZoomIn,
   onZoomOut,
   onResetZoom,
@@ -195,6 +207,125 @@ export default function RoadCanvas({
     }
   }
 
+  const drawPolygon = (ctx: CanvasRenderingContext2D, polygon: Polygon, isSelected: boolean) => {
+    if (polygon.points.length < 3) return
+
+    // Set fill style with opacity
+    const fillColor = polygon.fillColor
+    const strokeColor = polygon.strokeColor
+    
+    // Convert hex to rgba for opacity
+    const hexToRgba = (hex: string, alpha: number) => {
+      const r = parseInt(hex.slice(1, 3), 16)
+      const g = parseInt(hex.slice(3, 5), 16)
+      const b = parseInt(hex.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`
+    }
+
+    ctx.fillStyle = hexToRgba(fillColor, polygon.opacity)
+    ctx.strokeStyle = isSelected ? "#3b82f6" : strokeColor
+    ctx.lineWidth = isSelected ? 3 / zoom : 2 / zoom
+
+    // Draw polygon
+    ctx.beginPath()
+    ctx.moveTo(polygon.points[0].x, polygon.points[0].y)
+    for (let i = 1; i < polygon.points.length; i++) {
+      ctx.lineTo(polygon.points[i].x, polygon.points[i].y)
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    // Draw polygon name if it has one
+    if (polygon.name && polygon.name.trim() !== "") {
+      // Calculate centroid for text placement
+      let centroidX = 0
+      let centroidY = 0
+      for (const point of polygon.points) {
+        centroidX += point.x
+        centroidY += point.y
+      }
+      centroidX /= polygon.points.length
+      centroidY /= polygon.points.length
+
+      const fontSize = Math.max(14 / zoom, 10)
+      ctx.font = `${fontSize}px Arial`
+      ctx.fillStyle = "#1f2937"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText(polygon.name, centroidX, centroidY)
+    }
+
+    // Draw selection highlight
+    if (isSelected) {
+      ctx.strokeStyle = "#3b82f6"
+      ctx.lineWidth = 1 / zoom
+      ctx.setLineDash([5 / zoom, 5 / zoom])
+      ctx.beginPath()
+      ctx.moveTo(polygon.points[0].x, polygon.points[0].y)
+      for (let i = 1; i < polygon.points.length; i++) {
+        ctx.lineTo(polygon.points[i].x, polygon.points[i].y)
+      }
+      ctx.closePath()
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+  }
+
+  const drawPolygonSession = (ctx: CanvasRenderingContext2D, session: PolygonSession, currentMousePos: { x: number; y: number } | null) => {
+    if (!session.isActive || session.points.length === 0) return
+
+    ctx.strokeStyle = "#ef4444"
+    ctx.lineWidth = 2 / zoom
+    ctx.setLineDash([5 / zoom, 5 / zoom])
+
+    // Draw lines between points
+    if (session.points.length > 1) {
+      ctx.beginPath()
+      ctx.moveTo(session.points[0].x, session.points[0].y)
+      for (let i = 1; i < session.points.length; i++) {
+        ctx.lineTo(session.points[i].x, session.points[i].y)
+      }
+      ctx.stroke()
+    }
+
+    // Draw line to mouse position
+    if (currentMousePos && session.points.length > 0) {
+      ctx.beginPath()
+      ctx.moveTo(session.points[session.points.length - 1].x, session.points[session.points.length - 1].y)
+      ctx.lineTo(currentMousePos.x, currentMousePos.y)
+      ctx.stroke()
+
+      // Draw line back to first point if we have enough points
+      if (session.points.length >= 3) {
+        ctx.strokeStyle = "#10b981"
+        ctx.beginPath()
+        ctx.moveTo(currentMousePos.x, currentMousePos.y)
+        ctx.lineTo(session.points[0].x, session.points[0].y)
+        ctx.stroke()
+      }
+    }
+
+    ctx.setLineDash([])
+
+    // Draw points
+    ctx.fillStyle = "#ef4444"
+    for (const point of session.points) {
+      ctx.beginPath()
+      ctx.arc(point.x, point.y, 4 / zoom, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    // Highlight first point if we can close the polygon
+    if (session.points.length >= 3) {
+      ctx.strokeStyle = "#10b981"
+      ctx.lineWidth = 2 / zoom
+      ctx.beginPath()
+      ctx.arc(session.points[0].x, session.points[0].y, 8 / zoom, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+  }
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -207,6 +338,12 @@ export default function RoadCanvas({
     ctx.scale(zoom, zoom)
 
     drawGrid(ctx, canvas.width, canvas.height)
+    
+    // Draw polygons first (behind roads)
+    if (showPolygons) {
+      polygons.forEach((polygon) => drawPolygon(ctx, polygon, polygon.id === selectedPolygonId))
+    }
+    
     roads.forEach((road) => drawRoad(ctx, road, road.id === selectedRoadId, road.id === selectedRoadForDisconnect))
     nodes.forEach((node) => drawNode(ctx, node, node.id === selectedNodeId, node.id === connectingFromNodeId))
 
@@ -222,13 +359,20 @@ export default function RoadCanvas({
       drawBuildSessionPreview(ctx, buildSession, mousePosition, isActivelyDrawingCurve)
     }
 
+    if (polygonSession.isActive) {
+      drawPolygonSession(ctx, polygonSession, mousePosition)
+    }
+
     ctx.restore()
   }, [
     nodes,
     roads,
+    polygons,
     buildSession,
+    polygonSession,
     selectedRoadId,
     selectedNodeId,
+    selectedPolygonId,
     selectedNodeData,
     connectingFromNodeId,
     selectedRoadForDisconnect,
@@ -238,6 +382,7 @@ export default function RoadCanvas({
     mousePosition,
     showRoadLengths,
     showRoadNames,
+    showPolygons,
     scaleMetersPerPixel,
     snapDistance,
     isActivelyDrawingCurve,
@@ -499,6 +644,7 @@ export default function RoadCanvas({
     if (drawingMode === "connect") return "cursor-pointer"
     if (drawingMode === "disconnect") return "cursor-pointer"
     if (drawingMode === "add-node") return "cursor-crosshair"
+    if (drawingMode === "polygon") return "cursor-crosshair"
     return "cursor-default"
   }
 
@@ -506,11 +652,12 @@ export default function RoadCanvas({
     switch (drawingMode) {
       case "nodes": return "Build"
       case "pan": return "Pan"
-      case "move": return "Select Roads"
+      case "move": return "Select"
       case "select-node": return "Select Nodes"
       case "connect": return "Connect"
       case "disconnect": return "Disconnect"
       case "add-node": return "Add Node"
+      case "polygon": return "Polygon"
       default: return drawingMode
     }
   }
@@ -519,6 +666,12 @@ export default function RoadCanvas({
     if (connectingFromNodeId) return " (Click target node or same node for circle)"
     if (selectedRoadForDisconnect) return " (Click again to delete road)"
     if (buildSession.isActive) return " (Building...)"
+    if (polygonSession.isActive) {
+      if (polygonSession.points.length >= 3) {
+        return " (Click first point to close polygon)"
+      }
+      return " (Click to add points)"
+    }
     return ""
   }
 

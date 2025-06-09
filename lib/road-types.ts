@@ -29,6 +29,17 @@ export interface Road {
   controlPoints?: [{ x: number; y: number }, { x: number; y: number }]
 }
 
+export interface Polygon {
+  id: string
+  name?: string
+  points: { x: number; y: number }[]
+  roadIds: string[] // Roads that this polygon follows
+  fillColor: string
+  strokeColor: string
+  opacity: number
+  area?: number // Calculated area in square meters
+}
+
 export interface BuildSession {
   nodes: NodePoint[]
   isActive: boolean
@@ -36,6 +47,15 @@ export interface BuildSession {
   roadWidth: number
   isDraggingControlPoint?: "cp1" | "cp2" | null // To know which control point is being dragged for the current segment
   currentSegmentStartNodeIndex?: number | null // Index of the node where the current bezier segment starts
+}
+
+export interface PolygonSession {
+  points: { x: number; y: number }[]
+  roadIds: string[]
+  isActive: boolean
+  fillColor: string
+  strokeColor: string
+  opacity: number
 }
 
 export interface NodePoint {

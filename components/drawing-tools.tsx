@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Polygon } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node") => void
+  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -31,6 +31,21 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
           >
             <Plus size={20} />
             <span className="text-xs">Add Node</span>
+          </Toggle>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Polygon Tools</h3>
+        <div className="grid grid-cols-1 gap-2">
+          <Toggle
+            pressed={drawingMode === "polygon"}
+            onPressedChange={() => onDrawingModeChange("polygon")}
+            aria-label="Draw polygon"
+            className="flex flex-col items-center gap-1 h-16"
+          >
+            <Polygon size={20} />
+            <span className="text-xs">Polygon</span>
           </Toggle>
         </div>
       </div>
