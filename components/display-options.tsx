@@ -1,7 +1,7 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { Eye, EyeOff, Ruler, Type, Magnet } from "lucide-react"
+import { Eye, EyeOff, Ruler, Type, Magnet, Magnet as MagnetOff } from "lucide-react"
 
 interface DisplayOptionsProps {
   snapEnabled: boolean
@@ -39,7 +39,11 @@ export default function DisplayOptions({
             onPressedChange={onSnapEnabledChange}
             className="w-full h-16 flex flex-col items-center justify-center gap-1 rounded-xl border-2 transition-all duration-300 hover:scale-105 data-[state=on]:bg-gradient-to-br data-[state=on]:from-emerald-500 data-[state=on]:to-teal-600 data-[state=on]:border-emerald-400 data-[state=on]:text-white data-[state=on]:shadow-lg data-[state=on]:shadow-emerald-500/25 hover:shadow-md"
           >
-            <Magnet size={20} className={snapEnabled ? "drop-shadow-sm" : "text-gray-500"} />
+            {snapEnabled ? (
+              <Magnet size={20} className="drop-shadow-sm" />
+            ) : (
+              <MagnetOff size={20} className="text-gray-500" />
+            )}
             <span className="text-xs font-medium">Snap</span>
           </Toggle>
           
