@@ -1,7 +1,7 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon as Polygon } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon } from "lucide-react"
 
 interface DrawingToolsProps {
   drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon"
@@ -44,7 +44,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
             aria-label="Draw polygon"
             className="flex flex-col items-center gap-1 h-16"
           >
-            <Polygon size={20} />
+            <Hexagon size={20} />
             <span className="text-xs">Polygon</span>
           </Toggle>
         </div>
