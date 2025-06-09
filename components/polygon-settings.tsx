@@ -12,22 +12,18 @@ interface PolygonSettingsProps {
   fillColor: string
   strokeColor: string
   opacity: number
-  showPolygons: boolean
   onFillColorChange: (color: string) => void
   onStrokeColorChange: (color: string) => void
   onOpacityChange: (opacity: number) => void
-  onShowPolygonsChange: (show: boolean) => void
 }
 
 export default function PolygonSettings({
   fillColor,
   strokeColor,
   opacity,
-  showPolygons,
   onFillColorChange,
   onStrokeColorChange,
   onOpacityChange,
-  onShowPolygonsChange,
 }: PolygonSettingsProps) {
   return (
     <div className="space-y-6">
@@ -87,18 +83,6 @@ export default function PolygonSettings({
               step={0.1}
               onValueChange={(value) => onOpacityChange(value[0])}
             />
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Show Polygons</span>
-            <Toggle pressed={showPolygons} onPressedChange={onShowPolygonsChange}>
-              {showPolygons ? <Eye size={16} /> : <EyeOff size={16} />}
-            </Toggle>
           </div>
         </div>
       </div>
