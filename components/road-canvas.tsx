@@ -864,12 +864,12 @@ export default function RoadCanvas({
             </div>
           ) : (
             <div
-              className="group relative inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-purple-600 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 cursor-pointer border-2 border-white/20 backdrop-blur-sm w-[200px]"
+              className="group relative inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 cursor-pointer border-2 border-white/20 backdrop-blur-sm w-[200px]"
               onClick={() => handleRoadNameClick(selectedRoad.id, selectedRoad.name || "")}
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 blur-sm"></div>
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 blur-sm"></div>
               <span className="relative z-10 drop-shadow-sm">
-                {selectedRoad.name || "✨ Add name"}
+                {selectedRoad.name || "+ Add name"}
               </span>
               <div className="absolute inset-0 rounded-full bg-gradient-to-r from-white/10 to-white/5 group-hover:from-white/20 group-hover:to-white/10 transition-all duration-200"></div>
             </div>
