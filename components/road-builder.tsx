@@ -1272,22 +1272,27 @@ export default function RoadBuilder() {
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <DrawingTools drawingMode={drawingMode} onDrawingModeChange={setDrawingMode} />
-          <RoadSettings
-            defaultRoadWidth={defaultRoadWidth}
-            scaleMetersPerPixel={scaleMetersPerPixel}
-            snapDistance={snapDistance}
-            curvedRoads={false}
-            snapEnabled={snapEnabled}
-            showRoadLengths={showRoadLengths}
-            showRoadNames={showRoadNames}
-            onDefaultRoadWidthChange={setDefaultRoadWidth}
-            onScaleChange={setScaleMetersPerPixel}
-            onSnapDistanceChange={setSnapDistance}
-            onCurvedRoadsChange={() => {}}
-            onSnapEnabledChange={setSnapEnabled}
-            onShowRoadLengthsChange={setShowRoadLengths}
-            onShowRoadNamesChange={setShowRoadNames}
-          />
+          
+          {/* Only show Road Settings when Build tool is selected */}
+          {drawingMode === "nodes" && (
+            <RoadSettings
+              defaultRoadWidth={defaultRoadWidth}
+              scaleMetersPerPixel={scaleMetersPerPixel}
+              snapDistance={snapDistance}
+              curvedRoads={false}
+              snapEnabled={snapEnabled}
+              showRoadLengths={showRoadLengths}
+              showRoadNames={showRoadNames}
+              onDefaultRoadWidthChange={setDefaultRoadWidth}
+              onScaleChange={setScaleMetersPerPixel}
+              onSnapDistanceChange={setSnapDistance}
+              onCurvedRoadsChange={() => {}}
+              onSnapEnabledChange={setSnapEnabled}
+              onShowRoadLengthsChange={setShowRoadLengths}
+              onShowRoadNamesChange={setShowRoadNames}
+            />
+          )}
+          
           <PolygonSettings
             fillColor={polygonSession.fillColor}
             strokeColor={polygonSession.strokeColor}
