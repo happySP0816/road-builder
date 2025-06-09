@@ -3,8 +3,6 @@
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Trash2 } from "lucide-react"
 import type { Road, Node } from "@/lib/road-types"
 
@@ -65,21 +63,6 @@ export default function SelectedItemPanel({
                 <div className="font-medium">{calculateRoadLength(selectedRoad).toFixed(1)}m</div>
               </div>
             </div>
-
-            {/* Road Name Input */}
-            {onUpdateRoadName && (
-              <div className="space-y-2">
-                <Label htmlFor="road-name" className="text-sm font-medium">Road Name</Label>
-                <Input
-                  id="road-name"
-                  type="text"
-                  placeholder="Enter road name..."
-                  value={selectedRoad.name || ""}
-                  onChange={(e) => onUpdateRoadName(selectedRoad.id, e.target.value)}
-                  className="text-sm"
-                />
-              </div>
-            )}
 
             {/* Road Width Slider */}
             {onUpdateRoadWidth && (

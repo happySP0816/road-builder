@@ -1,7 +1,8 @@
 "use client"
 
-import { useRef, useEffect, type MouseEvent } from "react"
+import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
 import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
 
@@ -40,6 +41,7 @@ interface RoadCanvasProps {
   onZoomOut: () => void
   onResetZoom: () => void
   onAddRoad?: (road: Omit<Road, "id">) => void
+  onUpdateRoadName?: (roadId: string, newName: string) => void
 }
 
 export default function RoadCanvas({
@@ -75,9 +77,12 @@ export default function RoadCanvas({
   onZoomIn,
   onZoomOut,
   onResetZoom,
+  onUpdateRoadName,
 }: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [editingRoadName, setEditingRoadName] = useState<string | null>(null)
+  const [tempRoadName, setTempRoadName] = useState("")
 
   useEffect(() => {
     const handleResize = () => {
@@ -90,6 +95,54 @@ export default function RoadCanvas({
     handleResize()
     return () => window.removeEventListener("resize", handleResize)
   }, [])
+
+  // Calculate road name position for inline editing
+  const getRoadNamePosition = (road: Road) => {
+    if (road.type === RoadType.STRAIGHT) {
+      const midX = (road.start.x + road.end.x) / 2
+      const midY = (road.start.y + road.end.y) / 2
+      return {
+        x: midX * zoom + panOffset.x,
+        y: midY * zoom + panOffset.y - (road.width / 2 + 30)
+      }
+    } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+      const t = 0.5
+      const mt = 1 - t
+      
+      const x = mt * mt * mt * road.start.x +
+                3 * mt * mt * t * road.controlPoints[0].x +
+                3 * mt * t * t * road.controlPoints[1].x +
+                t * t * t * road.end.x
+      const y = mt * mt * mt * road.start.y +
+                3 * mt * mt * t * road.controlPoints[0].y +
+                3 * mt * t * t * road.controlPoints[1].y +
+                t * t * t * road.end.y
+      
+      return {
+        x: x * zoom + panOffset.x,
+        y: y * zoom + panOffset.y - (road.width / 2 + 30)
+      }
+    }
+    return { x: 0, y: 0 }
+  }
+
+  const handleRoadNameClick = (roadId: string, currentName: string) => {
+    setEditingRoadName(roadId)
+    setTempRoadName(currentName || "")
+  }
+
+  const handleRoadNameSubmit = (roadId: string) => {
+    if (onUpdateRoadName) {
+      onUpdateRoadName(roadId, tempRoadName)
+    }
+    setEditingRoadName(null)
+    setTempRoadName("")
+  }
+
+  const handleRoadNameCancel = () => {
+    setEditingRoadName(null)
+    setTempRoadName("")
+  }
 
   const drawEditableControlPoints = (ctx: CanvasRenderingContext2D, selectedNode: Node | null, allRoads: Road[]) => {
     if (!selectedNode) return
@@ -720,6 +773,9 @@ export default function RoadCanvas({
     return ""
   }
 
+  // Get the selected road for inline editing
+  const selectedRoad = selectedRoadId ? roads.find(r => r.id === selectedRoadId) : null
+
   return (
     <div ref={containerRef} className="relative flex-1 bg-white">
       <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
@@ -727,6 +783,48 @@ export default function RoadCanvas({
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
         Mode: {getModeDisplayName()}{getStatusMessage()}
       </div>
+
+      {/* Inline Road Name Editor */}
+      {selectedRoad && onUpdateRoadName && (
+        <div
+          className="absolute z-10"
+          style={{
+            left: `${getRoadNamePosition(selectedRoad).x - 100}px`,
+            top: `${getRoadNamePosition(selectedRoad).y}px`,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          {editingRoadName === selectedRoad.id ? (
+            <div className="bg-white border border-blue-300 rounded-lg shadow-lg p-2 min-w-[200px]">
+              <Input
+                type="text"
+                value={tempRoadName}
+                onChange={(e) => setTempRoadName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleRoadNameSubmit(selectedRoad.id)
+                  } else if (e.key === "Escape") {
+                    handleRoadNameCancel()
+                  }
+                }}
+                onBlur={() => handleRoadNameSubmit(selectedRoad.id)}
+                placeholder="Enter road name..."
+                className="text-sm"
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div
+              className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-3 py-2 cursor-pointer hover:bg-white hover:border-blue-300 transition-colors min-w-[120px] text-center"
+              onClick={() => handleRoadNameClick(selectedRoad.id, selectedRoad.name || "")}
+            >
+              <span className="text-sm font-medium text-gray-700">
+                {selectedRoad.name || "Click to add name"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <Button variant="outline" size="icon" onClick={onZoomIn}>
