@@ -24,6 +24,7 @@ export interface Road {
   type: RoadType
   width: number
   id: string
+  name?: string // Road name/label
   // For BEZIER type, controlPoints[0] is cp1 (for start point), controlPoints[1] is cp2 (for end point)
   controlPoints?: [{ x: number; y: number }, { x: number; y: number }]
 }

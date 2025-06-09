@@ -42,6 +42,7 @@ export default function RoadBuilder() {
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
   const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node">("nodes")
   const [showRoadLengths, setShowRoadLengths] = useState(false)
+  const [showRoadNames, setShowRoadNames] = useState(true)
   const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
   const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -236,6 +237,7 @@ export default function RoadBuilder() {
         endNodeId: endNodeId,
         type: RoadType.BEZIER,
         width: defaultRoadWidth,
+        name: "", // Default empty name
         controlPoints: [
           { x: startNode.x + radius, y: startNode.y - radius },
           { x: startNode.x - radius, y: startNode.y + radius }
@@ -272,6 +274,7 @@ export default function RoadBuilder() {
       endNodeId: endNodeId,
       type: RoadType.STRAIGHT,
       width: defaultRoadWidth,
+      name: "", // Default empty name
     }
     
     setRoads(prev => [...prev, newRoad])
@@ -454,6 +457,7 @@ export default function RoadBuilder() {
               endNodeId: firstNodeInSession.id,
               type: RoadType.BEZIER,
               width: currentSession.roadWidth,
+              name: "", // Default empty name
               controlPoints: [cp2ForStartOfClosingRoad, cp1ForEndOfClosingRoad],
             }
           } else {
@@ -465,6 +469,7 @@ export default function RoadBuilder() {
               endNodeId: firstNodeInSession.id,
               type: RoadType.STRAIGHT,
               width: currentSession.roadWidth,
+              name: "", // Default empty name
             }
           }
           setRoads((prev) => [...prev, closingRoad])
@@ -677,6 +682,7 @@ export default function RoadBuilder() {
             endNodeId: lastPoint.id,
             type: RoadType.BEZIER,
             width: currentSession.roadWidth,
+            name: "", // Default empty name
             controlPoints: [cp2_start, cp1_end],
           }
         } else {
@@ -688,6 +694,7 @@ export default function RoadBuilder() {
             endNodeId: lastPoint.id,
             type: RoadType.STRAIGHT,
             width: currentSession.roadWidth,
+            name: "", // Default empty name
             controlPoints: [
               { x: secondLastPoint.x, y: secondLastPoint.y },
               { x: lastPoint.x, y: lastPoint.y },
@@ -911,6 +918,10 @@ export default function RoadBuilder() {
     setRoads((prevRoads) => prevRoads.map((r) => (r.id === roadId ? { ...r, width: newWidth } : r)))
   }
 
+  const onUpdateRoadName = (roadId: string, newName: string) => {
+    setRoads((prevRoads) => prevRoads.map((r) => (r.id === roadId ? { ...r, name: newName } : r)))
+  }
+
   const selectedRoadData = roads.find((r) => r.id === selectedRoadId) || null
   const selectedNodeData = nodes.find((n) => n.id === selectedNodeId) || null
   const totalLength = roads.reduce((sum, road) => sum + calculateRoadLength(road), 0)
@@ -934,6 +945,7 @@ export default function RoadBuilder() {
           snapDistance={snapDistance}
           defaultRoadWidth={defaultRoadWidth}
           showRoadLengths={showRoadLengths}
+          showRoadNames={showRoadNames}
           scaleMetersPerPixel={scaleMetersPerPixel}
           selectedRoadId={selectedRoadId}
           selectedNodeId={selectedNodeId}
@@ -964,12 +976,14 @@ export default function RoadBuilder() {
             curvedRoads={false}
             snapEnabled={snapEnabled}
             showRoadLengths={showRoadLengths}
+            showRoadNames={showRoadNames}
             onDefaultRoadWidthChange={setDefaultRoadWidth}
             onScaleChange={setScaleMetersPerPixel}
             onSnapDistanceChange={setSnapDistance}
             onCurvedRoadsChange={() => {}}
             onSnapEnabledChange={setSnapEnabled}
             onShowRoadLengthsChange={setShowRoadLengths}
+            onShowRoadNamesChange={setShowRoadNames}
           />
           <SelectedItemPanel
             selectedRoad={selectedRoadData}
@@ -978,6 +992,7 @@ export default function RoadBuilder() {
             onDeleteNode={deleteNode}
             calculateRoadLength={calculateRoadLength}
             onUpdateRoadWidth={onUpdateRoadWidth}
+            onUpdateRoadName={onUpdateRoadName}
           />
           <ActionsPanel onRemoveLastElement={removeLastElement} onClearCanvas={clearCanvas} />
         </div>

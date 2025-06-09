@@ -1,8 +1,10 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Slider } from "@/components/ui/slider" // Import Slider
-import { Badge } from "@/components/ui/badge" // Import Badge
+import { Slider } from "@/components/ui/slider"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Trash2 } from "lucide-react"
 import type { Road, Node } from "@/lib/road-types"
 
@@ -12,7 +14,8 @@ interface SelectedItemPanelProps {
   onDeleteRoad: (roadId: string) => void
   onDeleteNode: (nodeId: string) => void
   calculateRoadLength: (road: Road) => number
-  onUpdateRoadWidth?: (roadId: string, newWidth: number) => void // New prop
+  onUpdateRoadWidth?: (roadId: string, newWidth: number) => void
+  onUpdateRoadName?: (roadId: string, newName: string) => void
 }
 
 export default function SelectedItemPanel({
@@ -21,7 +24,8 @@ export default function SelectedItemPanel({
   onDeleteRoad,
   onDeleteNode,
   calculateRoadLength,
-  onUpdateRoadWidth, // Destructure new prop
+  onUpdateRoadWidth,
+  onUpdateRoadName,
 }: SelectedItemPanelProps) {
   if (!selectedRoad && !selectedNode) return null
 
@@ -62,6 +66,21 @@ export default function SelectedItemPanel({
               </div>
             </div>
 
+            {/* Road Name Input */}
+            {onUpdateRoadName && (
+              <div className="space-y-2">
+                <Label htmlFor="road-name" className="text-sm font-medium">Road Name</Label>
+                <Input
+                  id="road-name"
+                  type="text"
+                  placeholder="Enter road name..."
+                  value={selectedRoad.name || ""}
+                  onChange={(e) => onUpdateRoadName(selectedRoad.id, e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+            )}
+
             {/* Road Width Slider */}
             {onUpdateRoadWidth && (
               <div className="space-y-2">
@@ -71,8 +90,8 @@ export default function SelectedItemPanel({
                 </div>
                 <Slider
                   value={[selectedRoad.width]}
-                  min={5} // Min road width
-                  max={50} // Max road width
+                  min={5}
+                  max={50}
                   step={1}
                   onValueChange={(value) => onUpdateRoadWidth(selectedRoad.id, value[0])}
                 />

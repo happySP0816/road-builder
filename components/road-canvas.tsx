@@ -14,6 +14,7 @@ interface RoadCanvasProps {
   snapDistance: number
   defaultRoadWidth: number
   showRoadLengths: boolean
+  showRoadNames: boolean
   scaleMetersPerPixel: number
   selectedRoadId: string | null
   selectedNodeId: string | null
@@ -43,6 +44,7 @@ export default function RoadCanvas({
   snapDistance,
   defaultRoadWidth,
   showRoadLengths,
+  showRoadNames,
   scaleMetersPerPixel,
   selectedRoadId,
   selectedNodeId,
@@ -125,6 +127,74 @@ export default function RoadCanvas({
     ctx.setLineDash([])
   }
 
+  // Helper function to draw text along a path
+  const drawTextAlongPath = (ctx: CanvasRenderingContext2D, text: string, road: Road) => {
+    if (!text || text.trim() === "") return
+
+    const fontSize = Math.max(12 / zoom, 8)
+    ctx.font = `${fontSize}px Arial`
+    ctx.fillStyle = "#374151"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+
+    if (road.type === RoadType.STRAIGHT) {
+      // For straight roads, draw text at the midpoint
+      const midX = (road.start.x + road.end.x) / 2
+      const midY = (road.start.y + road.end.y) / 2
+      
+      // Calculate angle for text rotation
+      const angle = Math.atan2(road.end.y - road.start.y, road.end.x - road.start.x)
+      
+      ctx.save()
+      ctx.translate(midX, midY)
+      ctx.rotate(angle)
+      
+      // Ensure text is always readable (not upside down)
+      if (Math.abs(angle) > Math.PI / 2) {
+        ctx.rotate(Math.PI)
+      }
+      
+      ctx.fillText(text, 0, -road.width / 2 - 5 / zoom)
+      ctx.restore()
+    } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+      // For bezier roads, draw text along the curve at t=0.5
+      const t = 0.5
+      const mt = 1 - t
+      
+      // Calculate position at t=0.5
+      const x = mt * mt * mt * road.start.x +
+                3 * mt * mt * t * road.controlPoints[0].x +
+                3 * mt * t * t * road.controlPoints[1].x +
+                t * t * t * road.end.x
+      const y = mt * mt * mt * road.start.y +
+                3 * mt * mt * t * road.controlPoints[0].y +
+                3 * mt * t * t * road.controlPoints[1].y +
+                t * t * t * road.end.y
+      
+      // Calculate tangent for rotation
+      const dx = 3 * mt * mt * (road.controlPoints[0].x - road.start.x) +
+                 6 * mt * t * (road.controlPoints[1].x - road.controlPoints[0].x) +
+                 3 * t * t * (road.end.x - road.controlPoints[1].x)
+      const dy = 3 * mt * mt * (road.controlPoints[0].y - road.start.y) +
+                 6 * mt * t * (road.controlPoints[1].y - road.controlPoints[0].y) +
+                 3 * t * t * (road.end.y - road.controlPoints[1].y)
+      
+      const angle = Math.atan2(dy, dx)
+      
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(angle)
+      
+      // Ensure text is always readable (not upside down)
+      if (Math.abs(angle) > Math.PI / 2) {
+        ctx.rotate(Math.PI)
+      }
+      
+      ctx.fillText(text, 0, -road.width / 2 - 5 / zoom)
+      ctx.restore()
+    }
+  }
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -167,6 +237,7 @@ export default function RoadCanvas({
     zoom,
     mousePosition,
     showRoadLengths,
+    showRoadNames,
     scaleMetersPerPixel,
     snapDistance,
     isActivelyDrawingCurve,
@@ -268,6 +339,7 @@ export default function RoadCanvas({
     }
 
     if (showRoadLengths) drawRoadLength(ctx, road)
+    if (showRoadNames && road.name) drawTextAlongPath(ctx, road.name, road)
 
     if (isSelected || isSelectedForDisconnect) {
       ctx.globalAlpha = 0.4

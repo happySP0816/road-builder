@@ -3,7 +3,7 @@
 import { Toggle } from "@/components/ui/toggle"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
-import { Ruler } from "lucide-react"
+import { Ruler, Type } from "lucide-react"
 
 interface RoadSettingsProps {
   defaultRoadWidth: number
@@ -12,12 +12,14 @@ interface RoadSettingsProps {
   curvedRoads: boolean
   snapEnabled: boolean
   showRoadLengths: boolean
+  showRoadNames: boolean
   onDefaultRoadWidthChange: (width: number) => void
   onScaleChange: (scale: number) => void
   onSnapDistanceChange: (distance: number) => void
   onCurvedRoadsChange: (curved: boolean) => void
   onSnapEnabledChange: (enabled: boolean) => void
   onShowRoadLengthsChange: (show: boolean) => void
+  onShowRoadNamesChange: (show: boolean) => void
 }
 
 export default function RoadSettings({
@@ -27,12 +29,14 @@ export default function RoadSettings({
   curvedRoads,
   snapEnabled,
   showRoadLengths,
+  showRoadNames,
   onDefaultRoadWidthChange,
   onScaleChange,
   onSnapDistanceChange,
   onCurvedRoadsChange,
   onSnapEnabledChange,
   onShowRoadLengthsChange,
+  onShowRoadNamesChange,
 }: RoadSettingsProps) {
   return (
     <div className="space-y-6">
@@ -84,7 +88,7 @@ export default function RoadSettings({
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Options</h3>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm">Auto Snapping</span>
@@ -97,6 +101,13 @@ export default function RoadSettings({
             <span className="text-sm">Show Lengths</span>
             <Toggle pressed={showRoadLengths} onPressedChange={onShowRoadLengthsChange}>
               <Ruler size={16} />
+            </Toggle>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Show Names</span>
+            <Toggle pressed={showRoadNames} onPressedChange={onShowRoadNamesChange}>
+              <Type size={16} />
             </Toggle>
           </div>
         </div>
