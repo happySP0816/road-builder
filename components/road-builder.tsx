@@ -1279,65 +1279,58 @@ export default function RoadBuilder() {
         />
       </div>
 
-      {/* Right Sidebar - Settings and Edit Panels */}
+      {/* Right Sidebar - All Settings Always Visible */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Show Road Settings only when Build tool is selected */}
-          {drawingMode === "nodes" && (
-            <RoadSettings
-              defaultRoadWidth={defaultRoadWidth}
-              scaleMetersPerPixel={scaleMetersPerPixel}
-              snapDistance={snapDistance}
-              curvedRoads={false}
-              snapEnabled={snapEnabled}
-              showRoadLengths={showRoadLengths}
-              showRoadNames={showRoadNames}
-              onDefaultRoadWidthChange={setDefaultRoadWidth}
-              onScaleChange={setScaleMetersPerPixel}
-              onSnapDistanceChange={setSnapDistance}
-              onCurvedRoadsChange={() => {}}
-              onSnapEnabledChange={setSnapEnabled}
-              onShowRoadLengthsChange={setShowRoadLengths}
-              onShowRoadNamesChange={setShowRoadNames}
-            />
-          )}
+          {/* Road Settings - Always visible */}
+          <RoadSettings
+            defaultRoadWidth={defaultRoadWidth}
+            scaleMetersPerPixel={scaleMetersPerPixel}
+            snapDistance={snapDistance}
+            curvedRoads={false}
+            snapEnabled={snapEnabled}
+            showRoadLengths={showRoadLengths}
+            showRoadNames={showRoadNames}
+            onDefaultRoadWidthChange={setDefaultRoadWidth}
+            onScaleChange={setScaleMetersPerPixel}
+            onSnapDistanceChange={setSnapDistance}
+            onCurvedRoadsChange={() => {}}
+            onSnapEnabledChange={setSnapEnabled}
+            onShowRoadLengthsChange={setShowRoadLengths}
+            onShowRoadNamesChange={setShowRoadNames}
+          />
 
-          {/* Show Polygon Settings only when Draw Polygon tool is selected */}
-          {drawingMode === "polygon" && (
-            <PolygonSettings
-              fillColor={polygonSession.fillColor}
-              strokeColor={polygonSession.strokeColor}
-              opacity={polygonSession.opacity}
-              showPolygons={showPolygons}
-              onFillColorChange={(color) => setPolygonSession(prev => ({ ...prev, fillColor: color }))}
-              onStrokeColorChange={(color) => setPolygonSession(prev => ({ ...prev, strokeColor: color }))}
-              onOpacityChange={(opacity) => setPolygonSession(prev => ({ ...prev, opacity }))}
-              onShowPolygonsChange={setShowPolygons}
-            />
-          )}
+          {/* Polygon Settings - Always visible */}
+          <PolygonSettings
+            fillColor={polygonSession.fillColor}
+            strokeColor={polygonSession.strokeColor}
+            opacity={polygonSession.opacity}
+            showPolygons={showPolygons}
+            onFillColorChange={(color) => setPolygonSession(prev => ({ ...prev, fillColor: color }))}
+            onStrokeColorChange={(color) => setPolygonSession(prev => ({ ...prev, strokeColor: color }))}
+            onOpacityChange={(opacity) => setPolygonSession(prev => ({ ...prev, opacity }))}
+            onShowPolygonsChange={setShowPolygons}
+          />
 
-          {/* Show Edit Selection panels only when Select tool is selected and something is selected */}
-          {drawingMode === "select" && (
-            <>
-              <SelectedItemPanel
-                selectedRoad={selectedRoadData}
-                selectedNode={selectedNodeData}
-                onDeleteRoad={deleteRoad}
-                onDeleteNode={deleteNode}
-                calculateRoadLength={calculateRoadLength}
-                onUpdateRoadWidth={onUpdateRoadWidth}
-                onUpdateRoadName={onUpdateRoadName}
-              />
-              <SelectedPolygonPanel
-                selectedPolygon={selectedPolygonData}
-                onDeletePolygon={deletePolygon}
-                onUpdatePolygonName={onUpdatePolygonName}
-                onUpdatePolygonFillColor={onUpdatePolygonFillColor}
-                onUpdatePolygonStrokeColor={onUpdatePolygonStrokeColor}
-                onUpdatePolygonOpacity={onUpdatePolygonOpacity}
-              />
-            </>
-          )}
+          {/* Edit Selection panels - Always visible */}
+          <SelectedItemPanel
+            selectedRoad={selectedRoadData}
+            selectedNode={selectedNodeData}
+            onDeleteRoad={deleteRoad}
+            onDeleteNode={deleteNode}
+            calculateRoadLength={calculateRoadLength}
+            onUpdateRoadWidth={onUpdateRoadWidth}
+            onUpdateRoadName={onUpdateRoadName}
+          />
+          
+          <SelectedPolygonPanel
+            selectedPolygon={selectedPolygonData}
+            onDeletePolygon={deletePolygon}
+            onUpdatePolygonName={onUpdatePolygonName}
+            onUpdatePolygonFillColor={onUpdatePolygonFillColor}
+            onUpdatePolygonStrokeColor={onUpdatePolygonStrokeColor}
+            onUpdatePolygonOpacity={onUpdatePolygonOpacity}
+          />
         </div>
       </div>
     </div>
