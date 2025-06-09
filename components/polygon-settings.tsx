@@ -12,22 +12,18 @@ interface PolygonSettingsProps {
   fillColor: string
   strokeColor: string
   opacity: number
-  showPolygons: boolean
   onFillColorChange: (color: string) => void
   onStrokeColorChange: (color: string) => void
   onOpacityChange: (opacity: number) => void
-  onShowPolygonsChange: (show: boolean) => void
 }
 
 export default function PolygonSettings({
   fillColor,
   strokeColor,
   opacity,
-  showPolygons,
   onFillColorChange,
   onStrokeColorChange,
   onOpacityChange,
-  onShowPolygonsChange,
 }: PolygonSettingsProps) {
   return (
     <div className="space-y-6">
