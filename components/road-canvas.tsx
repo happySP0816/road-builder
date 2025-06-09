@@ -42,6 +42,7 @@ interface RoadCanvasProps {
   onResetZoom: () => void
   onAddRoad?: (road: Omit<Road, "id">) => void
   onUpdateRoadName?: (roadId: string, newName: string) => void
+  onUpdatePolygonName?: (polygonId: string, newName: string) => void
 }
 
 export default function RoadCanvas({
@@ -78,11 +79,14 @@ export default function RoadCanvas({
   onZoomOut,
   onResetZoom,
   onUpdateRoadName,
+  onUpdatePolygonName,
 }: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [editingRoadName, setEditingRoadName] = useState<string | null>(null)
   const [tempRoadName, setTempRoadName] = useState("")
+  const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
+  const [tempPolygonName, setTempPolygonName] = useState("")
 
   useEffect(() => {
     const handleResize = () => {
@@ -126,6 +130,23 @@ export default function RoadCanvas({
     return { x: 0, y: 0 }
   }
 
+  // Calculate polygon name position for inline editing (at centroid)
+  const getPolygonNamePosition = (polygon: Polygon) => {
+    let centroidX = 0
+    let centroidY = 0
+    for (const point of polygon.points) {
+      centroidX += point.x
+      centroidY += point.y
+    }
+    centroidX /= polygon.points.length
+    centroidY /= polygon.points.length
+
+    return {
+      x: centroidX * zoom + panOffset.x,
+      y: centroidY * zoom + panOffset.y
+    }
+  }
+
   const handleRoadNameClick = (roadId: string, currentName: string) => {
     setEditingRoadName(roadId)
     setTempRoadName(currentName || "")
@@ -142,6 +163,24 @@ export default function RoadCanvas({
   const handleRoadNameCancel = () => {
     setEditingRoadName(null)
     setTempRoadName("")
+  }
+
+  const handlePolygonNameClick = (polygonId: string, currentName: string) => {
+    setEditingPolygonName(polygonId)
+    setTempPolygonName(currentName || "")
+  }
+
+  const handlePolygonNameSubmit = (polygonId: string) => {
+    if (onUpdatePolygonName) {
+      onUpdatePolygonName(polygonId, tempPolygonName)
+    }
+    setEditingPolygonName(null)
+    setTempPolygonName("")
+  }
+
+  const handlePolygonNameCancel = () => {
+    setEditingPolygonName(null)
+    setTempPolygonName("")
   }
 
   const drawEditableControlPoints = (ctx: CanvasRenderingContext2D, selectedNode: Node | null, allRoads: Road[]) => {
@@ -290,7 +329,8 @@ export default function RoadCanvas({
     ctx.stroke()
 
     // Draw polygon name if it has one - centered on the polygon
-    if (polygon.name && polygon.name.trim() !== "") {
+    // Note: We'll handle inline editing separately, so we only draw the name when not editing
+    if (polygon.name && polygon.name.trim() !== "" && editingPolygonName !== polygon.id) {
       // Calculate centroid for text placement
       let centroidX = 0
       let centroidY = 0
@@ -479,6 +519,7 @@ export default function RoadCanvas({
     scaleMetersPerPixel,
     snapDistance,
     isActivelyDrawingCurve,
+    editingPolygonName,
   ])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -773,8 +814,9 @@ export default function RoadCanvas({
     return ""
   }
 
-  // Get the selected road for inline editing
+  // Get the selected road and polygon for inline editing
   const selectedRoad = selectedRoadId ? roads.find(r => r.id === selectedRoadId) : null
+  const selectedPolygon = selectedPolygonId ? polygons.find(p => p.id === selectedPolygonId) : null
 
   return (
     <div ref={containerRef} className="relative flex-1 bg-white">
@@ -820,6 +862,48 @@ export default function RoadCanvas({
             >
               <span className="text-sm font-medium text-gray-700">
                 {selectedRoad.name || "Click to add name"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Inline Polygon Name Editor */}
+      {selectedPolygon && onUpdatePolygonName && (
+        <div
+          className="absolute z-10"
+          style={{
+            left: `${getPolygonNamePosition(selectedPolygon).x}px`,
+            top: `${getPolygonNamePosition(selectedPolygon).y}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          {editingPolygonName === selectedPolygon.id ? (
+            <div className="bg-white border border-blue-300 rounded-lg shadow-lg p-2 min-w-[200px]">
+              <Input
+                type="text"
+                value={tempPolygonName}
+                onChange={(e) => setTempPolygonName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePolygonNameSubmit(selectedPolygon.id)
+                  } else if (e.key === "Escape") {
+                    handlePolygonNameCancel()
+                  }
+                }}
+                onBlur={() => handlePolygonNameSubmit(selectedPolygon.id)}
+                placeholder="Enter polygon name..."
+                className="text-sm"
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div
+              className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm px-3 py-2 cursor-pointer hover:bg-white hover:border-blue-300 transition-colors min-w-[120px] text-center"
+              onClick={() => handlePolygonNameClick(selectedPolygon.id, selectedPolygon.name || "")}
+            >
+              <span className="text-sm font-medium text-gray-700">
+                {selectedPolygon.name || "Click to add label"}
               </span>
             </div>
           )}

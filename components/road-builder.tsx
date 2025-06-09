@@ -1282,6 +1282,7 @@ export default function RoadBuilder() {
           onZoomOut={zoomOut}
           onResetZoom={resetZoom}
           onUpdateRoadName={onUpdateRoadName}
+          onUpdatePolygonName={onUpdatePolygonName}
         />
       </div>
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
