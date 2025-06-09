@@ -12,7 +12,7 @@ interface RoadCanvasProps {
   polygons: Polygon[]
   buildSession: BuildSession
   polygonSession: PolygonSession
-  drawingMode: "nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon"
+  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -398,8 +398,8 @@ export default function RoadCanvas({
       ctx.stroke()
       ctx.setLineDash([])
 
-      // Draw edit handles on polygon points when in select-polygon mode
-      if (drawingMode === "select-polygon") {
+      // Draw edit handles on polygon points when in select mode
+      if (drawingMode === "select") {
         ctx.fillStyle = "#3b82f6"
         ctx.strokeStyle = "#ffffff"
         ctx.lineWidth = 2 / zoom
@@ -780,13 +780,12 @@ export default function RoadCanvas({
 
   const getCursorClass = () => {
     if (drawingMode === "pan") return "cursor-grab"
-    if (drawingMode === "select-node") return "cursor-pointer"
+    if (drawingMode === "select") return "cursor-pointer"
     if (drawingMode === "nodes") return "cursor-crosshair"
     if (drawingMode === "connect") return "cursor-pointer"
     if (drawingMode === "disconnect") return "cursor-pointer"
     if (drawingMode === "add-node") return "cursor-crosshair"
     if (drawingMode === "polygon") return "cursor-crosshair"
-    if (drawingMode === "select-polygon") return "cursor-pointer"
     return "cursor-default"
   }
 
@@ -794,13 +793,11 @@ export default function RoadCanvas({
     switch (drawingMode) {
       case "nodes": return "Build"
       case "pan": return "Pan"
-      case "move": return "Select"
-      case "select-node": return "Select Nodes"
+      case "select": return "Select"
       case "connect": return "Connect"
       case "disconnect": return "Disconnect"
       case "add-node": return "Add Node"
       case "polygon": return "Draw Polygon"
-      case "select-polygon": return "Edit Polygon"
       default: return drawingMode
     }
   }
@@ -815,7 +812,7 @@ export default function RoadCanvas({
       }
       return " (Click to add points)"
     }
-    if (drawingMode === "select-polygon" && selectedPolygonId) {
+    if (drawingMode === "select" && selectedPolygonId) {
       return " (Drag polygon or points to edit)"
     }
     return ""

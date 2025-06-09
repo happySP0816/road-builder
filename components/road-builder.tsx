@@ -80,7 +80,7 @@ export default function RoadBuilder() {
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "move" | "select-node" | "connect" | "disconnect" | "add-node" | "polygon" | "select-polygon">("nodes")
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon">("nodes")
   const [showRoadLengths, setShowRoadLengths] = useState(false)
   const [showRoadNames, setShowRoadNames] = useState(true)
   const [showPolygons, setShowPolygons] = useState(true)
@@ -504,7 +504,25 @@ export default function RoadBuilder() {
       return
     }
 
-    if (drawingMode === "select-polygon") {
+    if (drawingMode === "select") {
+      // Unified select mode - check for control points first, then nodes, then polygons, then roads
+      const clickedControlPoint = findNearbyControlPoint(worldCoords)
+      if (clickedControlPoint) {
+        setIsDraggingNode(false)
+        setDraggedControlPointInfo(clickedControlPoint)
+        return
+      }
+
+      const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
+      if (clickedNode) {
+        setSelectedNodeId(clickedNode.id)
+        setSelectedRoadId(null)
+        setSelectedPolygonId(null)
+        setIsDraggingNode(true)
+        setDraggedNodeId(clickedNode.id)
+        return
+      }
+
       const clickedPolygon = findPolygonAtPosition(worldCoords)
       if (clickedPolygon) {
         setSelectedPolygonId(clickedPolygon.id)
@@ -532,7 +550,17 @@ export default function RoadBuilder() {
             y: worldCoords.y - centroidY
           })
         }
+        return
+      }
+      
+      const clickedRoad = findRoadAtPosition(worldCoords)
+      if (clickedRoad) {
+        setSelectedRoadId(clickedRoad.id)
+        setSelectedNodeId(null)
+        setSelectedPolygonId(null)
       } else {
+        setSelectedRoadId(null)
+        setSelectedNodeId(null)
         setSelectedPolygonId(null)
       }
       return
@@ -582,50 +610,6 @@ export default function RoadBuilder() {
             setSelectedRoadId(null)
           }
         }
-      }
-      return
-    }
-
-    if (drawingMode === "select-node") {
-      const clickedControlPoint = findNearbyControlPoint(worldCoords)
-      if (clickedControlPoint) {
-        setIsDraggingNode(false)
-        setDraggedControlPointInfo(clickedControlPoint)
-        return
-      }
-      const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
-      if (clickedNode) {
-        setSelectedNodeId(clickedNode.id)
-        setSelectedRoadId(null)
-        setSelectedPolygonId(null)
-        setIsDraggingNode(true)
-        setDraggedNodeId(clickedNode.id)
-      } else {
-        setSelectedNodeId(null)
-        setSelectedRoadId(null)
-        setSelectedPolygonId(null)
-      }
-      return
-    }
-
-    if (drawingMode === "move") {
-      // Check for polygon first, then road
-      const clickedPolygon = findPolygonAtPosition(worldCoords)
-      if (clickedPolygon) {
-        setSelectedPolygonId(clickedPolygon.id)
-        setSelectedRoadId(null)
-        setSelectedNodeId(null)
-        return
-      }
-      
-      const clickedRoad = findRoadAtPosition(worldCoords)
-      if (clickedRoad) {
-        setSelectedRoadId(clickedRoad.id)
-        setSelectedNodeId(null)
-        setSelectedPolygonId(null)
-      } else {
-        setSelectedRoadId(null)
-        setSelectedPolygonId(null)
       }
       return
     }
