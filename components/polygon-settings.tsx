@@ -90,18 +90,6 @@ export default function PolygonSettings({
           </div>
         </div>
       </div>
-
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Show Polygons</span>
-            <Toggle pressed={showPolygons} onPressedChange={onShowPolygonsChange}>
-              {showPolygons ? <Eye size={16} /> : <EyeOff size={16} />}
-            </Toggle>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
