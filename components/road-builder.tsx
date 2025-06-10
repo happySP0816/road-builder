@@ -1,562 +1,157 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, type MouseEvent } from "react"
-import { Button } from "@/components/ui/button"
-import { Toggle } from "@/components/ui/toggle"
-import { Separator } from "@/components/ui/separator"
-import { Eye, EyeOff, Check, X } from "lucide-react"
+import { useState, type MouseEvent, useEffect, useRef, useCallback } from "react"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import RoadCanvas from "./road-canvas"
+import StatusBar from "./status-bar"
 import DrawingTools from "./drawing-tools"
 import RoadSettings from "./road-settings"
 import PolygonSettings from "./polygon-settings"
-import ActionsPanel from "./actions-panel"
-import RoadCanvas from "./road-canvas"
 import SelectedItemPanel from "./selected-item-panel"
 import SelectedPolygonPanel from "./selected-polygon-panel"
-import BackgroundImagePanel from "./background-image-panel"
-import StatusBar from "./status-bar"
-import { 
-  type Road, 
-  type Node, 
-  type BuildSession, 
-  type PolygonSession, 
-  type Polygon, 
-  type BackgroundImage,
-  RoadType, 
-  type NodePoint 
-} from "@/lib/road-types"
+import ActionsPanel from "./actions-panel"
+
+// Helper function for distance from point to line segment
+function distToSegmentSquared(p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) {
+  const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2
+  if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2
+  t = Math.max(0, Math.min(1, t))
+  return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2
+}
+
+function distToSegment(p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) {
+  return Math.sqrt(distToSegmentSquared(p, v, w))
+}
+
+// Helper function to calculate polygon area using shoelace formula
+function calculatePolygonArea(points: { x: number; y: number }[], scaleMetersPerPixel: number): number {
+  if (points.length < 3) return 0
+  
+  let area = 0
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length
+    area += points[i].x * points[j].y
+    area -= points[j].x * points[i].y
+  }
+  area = Math.abs(area) / 2
+  
+  // Convert from pixels² to meters²
+  return area * scaleMetersPerPixel * scaleMetersPerPixel
+}
+
+// Helper function to check if point is inside polygon
+function isPointInPolygon(point: { x: number; y: number }, polygon: { x: number; y: number }[]): boolean {
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    if (((polygon[i].y > point.y) !== (polygon[j].y > point.y)) &&
+        (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
+      inside = !inside
+    }
+  }
+  return inside
+}
 
 export default function RoadBuilder() {
-  // Core state
   const [nodes, setNodes] = useState<Node[]>([])
   const [roads, setRoads] = useState<Road[]>([])
   const [polygons, setPolygons] = useState<Polygon[]>([])
-  const [backgroundImages, setBackgroundImages] = useState<BackgroundImage[]>([])
-  
-  // UI state
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon">("nodes")
-  const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null)
-  const [selectedBackgroundImageId, setSelectedBackgroundImageId] = useState<string | null>(null)
-  const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
-  const [selectedRoadForDisconnect, setSelectedRoadForDisconnect] = useState<string | null>(null)
-  
-  // Settings
-  const [snapEnabled, setSnapEnabled] = useState(true)
-  const [snapDistance, setSnapDistance] = useState(20)
-  const [defaultRoadWidth, setDefaultRoadWidth] = useState(12)
-  const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
-  const [curvedRoads, setCurvedRoads] = useState(false)
-  const [showRoadLengths, setShowRoadLengths] = useState(false)
-  const [showRoadNames, setShowRoadNames] = useState(true)
-  const [showPolygons, setShowPolygons] = useState(true)
-  const [showBackgroundLayer, setShowBackgroundLayer] = useState(true)
-  
-  // Polygon settings
-  const [polygonFillColor, setPolygonFillColor] = useState("#3b82f6")
-  const [polygonStrokeColor, setPolygonStrokeColor] = useState("#1e40af")
-  const [polygonOpacity, setPolygonOpacity] = useState(0.3)
-  
-  // Canvas state
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
-  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
-  const [isActivelyDrawingCurve, setIsActivelyDrawingCurve] = useState(false)
-  
-  // Build session state
   const [buildSession, setBuildSession] = useState<BuildSession>({
     nodes: [],
     isActive: false,
     roadType: RoadType.STRAIGHT,
-    roadWidth: defaultRoadWidth,
+    roadWidth: 10,
+    isDraggingControlPoint: null,
+    currentSegmentStartNodeIndex: null,
   })
-  
-  // Polygon session state
+
   const [polygonSession, setPolygonSession] = useState<PolygonSession>({
     points: [],
     roadIds: [],
     isActive: false,
-    fillColor: polygonFillColor,
-    strokeColor: polygonStrokeColor,
-    opacity: polygonOpacity,
+    fillColor: "#3b82f6",
+    strokeColor: "#1e40af",
+    opacity: 0.3,
   })
 
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const buildSessionRef = useRef(buildSession)
+  buildSessionRef.current = buildSession
 
-  // Helper functions
-  const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  const [snapEnabled, setSnapEnabled] = useState(true)
+  const [snapDistance, setSnapDistance] = useState(20)
+  const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon">("nodes")
+  const [showRoadLengths, setShowRoadLengths] = useState(false)
+  const [showRoadNames, setShowRoadNames] = useState(true)
+  const [showPolygons, setShowPolygons] = useState(true)
+  const [scaleMetersPerPixel, setScaleMetersPerPixel] = useState(0.1)
+  const [selectedRoadId, setSelectedRoadId] = useState<string | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null)
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null)
 
-  const getCanvasCoordinates = useCallback((e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    
-    const rect = canvas.getBoundingClientRect()
-    const clientX = 'clientX' in e ? e.clientX : (e as any).clientX
-    const clientY = 'clientY' in e ? e.clientY : (e as any).clientY
-    
-    return {
-      x: (clientX - rect.left - panOffset.x) / zoom,
-      y: (clientY - rect.top - panOffset.y) / zoom,
-    }
-  }, [panOffset, zoom])
+  const [isPanning, setIsPanning] = useState(false)
+  const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 })
+  const [isDraggingNode, setIsDraggingNode] = useState(false)
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
+  const [isDraggingNewPointHandle, setIsDraggingNewPointHandle] = useState(false)
+  const [draggedControlPointInfo, setDraggedControlPointInfo] = useState<{
+    roadId: string
+    pointIndex: 0 | 1
+  } | null>(null)
 
-  const snapToGrid = useCallback((point: { x: number; y: number }) => {
-    if (!snapEnabled) return point
-    return {
-      x: Math.round(point.x / snapDistance) * snapDistance,
-      y: Math.round(point.y / snapDistance) * snapDistance,
-    }
-  }, [snapEnabled, snapDistance])
+  // Polygon editing state
+  const [isDraggingPolygon, setIsDraggingPolygon] = useState(false)
+  const [isDraggingPolygonPoint, setIsDraggingPolygonPoint] = useState(false)
+  const [draggedPolygonPointIndex, setDraggedPolygonPointIndex] = useState<number | null>(null)
+  const [polygonDragOffset, setPolygonDragOffset] = useState({ x: 0, y: 0 })
 
-  const findNearbyNode = useCallback((point: { x: number; y: number }, threshold = 20) => {
-    return nodes.find(node => {
-      const distance = Math.sqrt(Math.pow(node.x - point.x, 2) + Math.pow(node.y - point.y, 2))
-      return distance <= threshold / zoom
-    })
-  }, [nodes, zoom])
+  // Connection mode state
+  const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
+  
+  // Disconnect mode state - two-step selection
+  const [selectedRoadForDisconnect, setSelectedRoadForDisconnect] = useState<string | null>(null)
 
-  const findClickedRoad = useCallback((point: { x: number; y: number }, threshold = 10) => {
-    return roads.find(road => {
-      if (road.type === RoadType.STRAIGHT) {
-        const A = { x: road.start.x, y: road.start.y }
-        const B = { x: road.end.x, y: road.end.y }
-        const P = point
-        
-        const AB = { x: B.x - A.x, y: B.y - A.y }
-        const AP = { x: P.x - A.x, y: P.y - A.y }
-        
-        const ABdotAB = AB.x * AB.x + AB.y * AB.y
-        if (ABdotAB === 0) return false
-        
-        const t = Math.max(0, Math.min(1, (AP.x * AB.x + AP.y * AB.y) / ABdotAB))
-        const closest = { x: A.x + t * AB.x, y: A.y + t * AB.y }
-        
-        const distance = Math.sqrt(Math.pow(P.x - closest.x, 2) + Math.pow(P.y - closest.y, 2))
-        return distance <= (threshold + road.width / 2) / zoom
-      }
-      return false
-    })
-  }, [roads, zoom])
-
-  const findClickedPolygon = useCallback((point: { x: number; y: number }) => {
-    return polygons.find(polygon => {
-      if (polygon.points.length < 3) return false
-      
-      let inside = false
-      for (let i = 0, j = polygon.points.length - 1; i < polygon.points.length; j = i++) {
-        const xi = polygon.points[i].x, yi = polygon.points[i].y
-        const xj = polygon.points[j].x, yj = polygon.points[j].y
-        
-        if (((yi > point.y) !== (yj > point.y)) && 
-            (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
-          inside = !inside
-        }
-      }
-      return inside
-    })
-  }, [polygons])
-
-  const findClickedBackgroundImage = useCallback((point: { x: number; y: number }) => {
-    // Check images in reverse order (top to bottom)
-    for (let i = backgroundImages.length - 1; i >= 0; i--) {
-      const image = backgroundImages[i]
-      if (!image.visible) continue
-      
-      // Simple bounding box check (could be enhanced for rotation)
-      if (point.x >= image.x && point.x <= image.x + image.width &&
-          point.y >= image.y && point.y <= image.y + image.height) {
-        return image
-      }
-    }
-    return null
-  }, [backgroundImages])
-
-  // Background image handlers
-  const handleAddBackgroundImage = useCallback((image: BackgroundImage) => {
-    setBackgroundImages(prev => [...prev, image])
-    setSelectedBackgroundImageId(image.id)
-  }, [])
-
-  const handleUpdateBackgroundImage = useCallback((id: string, updates: Partial<BackgroundImage>) => {
-    setBackgroundImages(prev => prev.map(img => 
-      img.id === id ? { ...img, ...updates } : img
-    ))
-  }, [])
-
-  const handleRemoveBackgroundImage = useCallback((id: string) => {
-    setBackgroundImages(prev => prev.filter(img => img.id !== id))
-    if (selectedBackgroundImageId === id) {
-      setSelectedBackgroundImageId(null)
-    }
-  }, [selectedBackgroundImageId])
-
-  const handleSelectBackgroundImage = useCallback((id: string | null) => {
-    setSelectedBackgroundImageId(id)
-    // Clear other selections when selecting background image
-    if (id) {
-      setSelectedRoadId(null)
-      setSelectedNodeId(null)
-      setSelectedPolygonId(null)
-    }
-  }, [])
-
-  const handleAddBackgroundImageFromDrop = useCallback((image: BackgroundImage) => {
-    setBackgroundImages(prev => [...prev, image])
-    setSelectedBackgroundImageId(image.id)
-  }, [])
-
-  // Mouse event handlers
-  const handleMouseDown = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
-    const coords = getCanvasCoordinates(e)
-    const snappedCoords = snapToGrid(coords)
-    
-    setMousePosition(coords)
-    
-    if (drawingMode === "pan") {
-      setIsDragging(true)
-      setDragStart({ x: e.clientX, y: e.clientY })
-      return
-    }
-    
-    if (drawingMode === "select") {
-      // Check for background image first (top layer)
-      if (showBackgroundLayer) {
-        const clickedImage = findClickedBackgroundImage(coords)
-        if (clickedImage) {
-          handleSelectBackgroundImage(clickedImage.id)
-          return
-        }
-      }
-      
-      // Check for polygon
-      if (showPolygons) {
-        const clickedPolygon = findClickedPolygon(coords)
-        if (clickedPolygon) {
-          setSelectedPolygonId(clickedPolygon.id)
-          setSelectedRoadId(null)
-          setSelectedNodeId(null)
-          setSelectedBackgroundImageId(null)
-          return
-        }
-      }
-      
-      // Check for road
-      const clickedRoad = findClickedRoad(coords)
-      if (clickedRoad) {
-        setSelectedRoadId(clickedRoad.id)
-        setSelectedNodeId(null)
-        setSelectedPolygonId(null)
-        setSelectedBackgroundImageId(null)
-        return
-      }
-      
-      // Check for node
-      const clickedNode = findNearbyNode(coords)
-      if (clickedNode) {
-        setSelectedNodeId(clickedNode.id)
-        setSelectedRoadId(null)
-        setSelectedPolygonId(null)
-        setSelectedBackgroundImageId(null)
-        return
-      }
-      
-      // Clear all selections
-      setSelectedRoadId(null)
-      setSelectedNodeId(null)
-      setSelectedPolygonId(null)
-      setSelectedBackgroundImageId(null)
-      return
-    }
-    
-    if (drawingMode === "connect") {
-      const clickedNode = findNearbyNode(coords)
-      if (clickedNode) {
-        if (!connectingFromNodeId) {
-          setConnectingFromNodeId(clickedNode.id)
-        } else if (connectingFromNodeId === clickedNode.id) {
-          // Create circle road
-          const circleRoad: Road = {
-            id: generateId(),
-            start: { x: clickedNode.x, y: clickedNode.y },
-            end: { x: clickedNode.x, y: clickedNode.y },
-            startNodeId: clickedNode.id,
-            endNodeId: clickedNode.id,
-            type: RoadType.CIRCLE,
-            width: defaultRoadWidth,
-          }
-          
-          setRoads(prev => [...prev, circleRoad])
-          setNodes(prev => prev.map(node => 
-            node.id === clickedNode.id 
-              ? { ...node, connectedRoadIds: [...node.connectedRoadIds, circleRoad.id] }
-              : node
-          ))
-          setConnectingFromNodeId(null)
-        } else {
-          // Connect two different nodes
-          const fromNode = nodes.find(n => n.id === connectingFromNodeId)
-          if (fromNode) {
-            const newRoad: Road = {
-              id: generateId(),
-              start: { x: fromNode.x, y: fromNode.y },
-              end: { x: clickedNode.x, y: clickedNode.y },
-              startNodeId: fromNode.id,
-              endNodeId: clickedNode.id,
-              type: curvedRoads ? RoadType.CURVED : RoadType.STRAIGHT,
-              width: defaultRoadWidth,
-            }
-            
-            setRoads(prev => [...prev, newRoad])
-            setNodes(prev => prev.map(node => {
-              if (node.id === fromNode.id || node.id === clickedNode.id) {
-                return { ...node, connectedRoadIds: [...node.connectedRoadIds, newRoad.id] }
-              }
-              return node
-            }))
-          }
-          setConnectingFromNodeId(null)
-        }
-      }
-      return
-    }
-    
-    if (drawingMode === "disconnect") {
-      const clickedRoad = findClickedRoad(coords)
-      if (clickedRoad) {
-        if (selectedRoadForDisconnect === clickedRoad.id) {
-          // Delete the road
-          setRoads(prev => prev.filter(r => r.id !== clickedRoad.id))
-          setNodes(prev => prev.map(node => ({
-            ...node,
-            connectedRoadIds: node.connectedRoadIds.filter(id => id !== clickedRoad.id)
-          })))
-          setSelectedRoadForDisconnect(null)
-        } else {
-          setSelectedRoadForDisconnect(clickedRoad.id)
-        }
-      } else {
-        setSelectedRoadForDisconnect(null)
-      }
-      return
-    }
-    
-    if (drawingMode === "add-node") {
-      const existingNode = findNearbyNode(coords)
-      if (!existingNode) {
-        const newNode: Node = {
-          id: generateId(),
-          x: snappedCoords.x,
-          y: snappedCoords.y,
-          connectedRoadIds: [],
-        }
-        setNodes(prev => [...prev, newNode])
-      }
-      return
-    }
-    
-    if (drawingMode === "polygon") {
-      if (!polygonSession.isActive) {
-        setPolygonSession({
-          points: [snappedCoords],
-          roadIds: [],
-          isActive: true,
-          fillColor: polygonFillColor,
-          strokeColor: polygonStrokeColor,
-          opacity: polygonOpacity,
-        })
-      } else {
-        const firstPoint = polygonSession.points[0]
-        const distanceToFirst = Math.sqrt(
-          Math.pow(coords.x - firstPoint.x, 2) + Math.pow(coords.y - firstPoint.y, 2)
-        )
-        
-        if (polygonSession.points.length >= 3 && distanceToFirst <= 15 / zoom) {
-          // Close polygon
-          const newPolygon: Polygon = {
-            id: generateId(),
-            points: polygonSession.points,
-            roadIds: polygonSession.roadIds,
-            fillColor: polygonSession.fillColor,
-            strokeColor: polygonSession.strokeColor,
-            opacity: polygonSession.opacity,
-          }
-          
-          setPolygons(prev => [...prev, newPolygon])
-          setPolygonSession({
-            points: [],
-            roadIds: [],
-            isActive: false,
-            fillColor: polygonFillColor,
-            strokeColor: polygonStrokeColor,
-            opacity: polygonOpacity,
-          })
-        } else {
-          // Add point
-          setPolygonSession(prev => ({
-            ...prev,
-            points: [...prev.points, snappedCoords]
-          }))
-        }
-      }
-      return
-    }
-    
-    if (drawingMode === "nodes") {
-      const existingNode = findNearbyNode(coords)
-      if (existingNode) {
-        if (!buildSession.isActive) {
-          setBuildSession({
-            nodes: [{ ...existingNode }],
-            isActive: true,
-            roadType: curvedRoads ? RoadType.BEZIER : RoadType.STRAIGHT,
-            roadWidth: defaultRoadWidth,
-          })
-        }
-      } else {
-        const newNodePoint: NodePoint = {
-          id: generateId(),
-          x: snappedCoords.x,
-          y: snappedCoords.y,
-        }
-        
-        if (!buildSession.isActive) {
-          setBuildSession({
-            nodes: [newNodePoint],
-            isActive: true,
-            roadType: curvedRoads ? RoadType.BEZIER : RoadType.STRAIGHT,
-            roadWidth: defaultRoadWidth,
-          })
-        } else {
-          setBuildSession(prev => ({
-            ...prev,
-            nodes: [...prev.nodes, newNodePoint]
-          }))
-        }
-      }
-    }
-  }, [
-    drawingMode, getCanvasCoordinates, snapToGrid, showBackgroundLayer, showPolygons,
-    findClickedBackgroundImage, findClickedPolygon, findClickedRoad, findNearbyNode,
-    handleSelectBackgroundImage, connectingFromNodeId, selectedRoadForDisconnect,
-    polygonSession, polygonFillColor, polygonStrokeColor, polygonOpacity,
-    buildSession, curvedRoads, defaultRoadWidth, nodes, zoom
-  ])
-
-  const handleMouseMove = useCallback((e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
-    const coords = getCanvasCoordinates(e)
-    setMousePosition(coords)
-    
-    if (isDragging && drawingMode === "pan" && dragStart) {
-      const clientX = 'clientX' in e ? e.clientX : (e as any).clientX
-      const clientY = 'clientY' in e ? e.clientY : (e as any).clientY
-      
-      setPanOffset(prev => ({
-        x: prev.x + (clientX - dragStart.x),
-        y: prev.y + (clientY - dragStart.y),
-      }))
-      setDragStart({ x: clientX, y: clientY })
-    }
-  }, [getCanvasCoordinates, isDragging, drawingMode, dragStart])
-
-  const handleMouseUp = useCallback((e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
-    setIsDragging(false)
-    setDragStart(null)
-  }, [])
-
-  // Build session handlers
-  const handleCompleteBuildSession = useCallback(() => {
-    if (buildSession.nodes.length < 2) return
-    
-    const newNodes: Node[] = []
-    const newRoads: Road[] = []
-    
-    // Create nodes
-    buildSession.nodes.forEach(nodePoint => {
-      const existingNode = nodes.find(n => n.id === nodePoint.id)
-      if (!existingNode) {
-        newNodes.push({
-          id: nodePoint.id,
-          x: nodePoint.x,
-          y: nodePoint.y,
-          connectedRoadIds: [],
-        })
-      }
-    })
-    
-    // Create roads
-    for (let i = 0; i < buildSession.nodes.length - 1; i++) {
-      const startNode = buildSession.nodes[i]
-      const endNode = buildSession.nodes[i + 1]
-      
-      const roadId = generateId()
-      const road: Road = {
-        id: roadId,
-        start: { x: startNode.x, y: startNode.y },
-        end: { x: endNode.x, y: endNode.y },
-        startNodeId: startNode.id,
-        endNodeId: endNode.id,
-        type: buildSession.roadType,
-        width: buildSession.roadWidth,
-      }
-      
-      if (buildSession.roadType === RoadType.BEZIER && startNode.cp2 && endNode.cp1) {
-        road.controlPoints = [startNode.cp2, endNode.cp1]
-      }
-      
-      newRoads.push(road)
-      
-      // Update node connections
-      const updateNodeConnections = (nodeId: string) => {
-        const existingNode = nodes.find(n => n.id === nodeId)
-        if (existingNode) {
-          setNodes(prev => prev.map(n => 
-            n.id === nodeId 
-              ? { ...n, connectedRoadIds: [...n.connectedRoadIds, roadId] }
-              : n
-          ))
-        } else {
-          const newNode = newNodes.find(n => n.id === nodeId)
-          if (newNode) {
-            newNode.connectedRoadIds.push(roadId)
-          }
-        }
-      }
-      
-      updateNodeConnections(startNode.id)
-      updateNodeConnections(endNode.id)
-    }
-    
-    setNodes(prev => [...prev, ...newNodes])
-    setRoads(prev => [...prev, ...newRoads])
+  const completeBuildSession = useCallback(() => {
     setBuildSession({
       nodes: [],
       isActive: false,
-      roadType: curvedRoads ? RoadType.BEZIER : RoadType.STRAIGHT,
+      roadType: RoadType.STRAIGHT,
       roadWidth: defaultRoadWidth,
+      currentSegmentStartNodeIndex: null,
+      isDraggingControlPoint: null,
     })
-  }, [buildSession, nodes, curvedRoads, defaultRoadWidth])
+    setIsDraggingNewPointHandle(false)
+  }, [defaultRoadWidth])
 
-  const handleCancelBuildSession = useCallback(() => {
+  const cancelBuildSession = useCallback(() => {
     setBuildSession({
       nodes: [],
       isActive: false,
-      roadType: curvedRoads ? RoadType.BEZIER : RoadType.STRAIGHT,
+      roadType: RoadType.STRAIGHT,
       roadWidth: defaultRoadWidth,
+      currentSegmentStartNodeIndex: null,
+      isDraggingControlPoint: null,
     })
-  }, [curvedRoads, defaultRoadWidth])
+    setIsDraggingNewPointHandle(false)
+  }, [defaultRoadWidth])
 
-  // Polygon session handlers
-  const handleCompletePolygonSession = useCallback(() => {
+  const completePolygonSession = useCallback(() => {
     if (polygonSession.points.length >= 3) {
+      const polygonId = `polygon-${Date.now()}`
+      const area = calculatePolygonArea(polygonSession.points, scaleMetersPerPixel)
+      
       const newPolygon: Polygon = {
-        id: generateId(),
-        points: polygonSession.points,
-        roadIds: polygonSession.roadIds,
+        id: polygonId,
+        name: "",
+        points: [...polygonSession.points],
+        roadIds: [...polygonSession.roadIds],
         fillColor: polygonSession.fillColor,
         strokeColor: polygonSession.strokeColor,
         opacity: polygonSession.opacity,
+        area: area,
       }
       
       setPolygons(prev => [...prev, newPolygon])
@@ -566,153 +161,887 @@ export default function RoadBuilder() {
       points: [],
       roadIds: [],
       isActive: false,
-      fillColor: polygonFillColor,
-      strokeColor: polygonStrokeColor,
-      opacity: polygonOpacity,
+      fillColor: polygonSession.fillColor,
+      strokeColor: polygonSession.strokeColor,
+      opacity: polygonSession.opacity,
     })
-  }, [polygonSession, polygonFillColor, polygonStrokeColor, polygonOpacity])
+  }, [polygonSession, scaleMetersPerPixel])
 
-  const handleCancelPolygonSession = useCallback(() => {
+  const cancelPolygonSession = useCallback(() => {
     setPolygonSession({
       points: [],
       roadIds: [],
       isActive: false,
-      fillColor: polygonFillColor,
-      strokeColor: polygonStrokeColor,
-      opacity: polygonOpacity,
+      fillColor: polygonSession.fillColor,
+      strokeColor: polygonSession.strokeColor,
+      opacity: polygonSession.opacity,
     })
-  }, [polygonFillColor, polygonStrokeColor, polygonOpacity])
+  }, [polygonSession.fillColor, polygonSession.strokeColor, polygonSession.opacity])
 
-  // Action handlers
-  const handleRemoveLastElement = useCallback(() => {
-    if (buildSession.isActive && buildSession.nodes.length > 0) {
-      setBuildSession(prev => ({
-        ...prev,
-        nodes: prev.nodes.slice(0, -1)
-      }))
-    } else if (polygonSession.isActive && polygonSession.points.length > 0) {
-      setPolygonSession(prev => ({
-        ...prev,
-        points: prev.points.slice(0, -1)
-      }))
-    } else if (roads.length > 0) {
-      const lastRoad = roads[roads.length - 1]
-      setRoads(prev => prev.slice(0, -1))
-      setNodes(prev => prev.map(node => ({
-        ...node,
-        connectedRoadIds: node.connectedRoadIds.filter(id => id !== lastRoad.id)
-      })))
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (buildSessionRef.current.isActive) {
+        if (event.key === "Enter") {
+          event.preventDefault()
+          completeBuildSession()
+        } else if (event.key === "Escape") {
+          event.preventDefault()
+          cancelBuildSession()
+        }
+      }
+      
+      if (polygonSession.isActive) {
+        if (event.key === "Enter") {
+          event.preventDefault()
+          completePolygonSession()
+        } else if (event.key === "Escape") {
+          event.preventDefault()
+          cancelPolygonSession()
+        }
+      }
+      
+      // Reset connection mode on Escape
+      if (event.key === "Escape") {
+        setConnectingFromNodeId(null)
+        setSelectedRoadForDisconnect(null)
+      }
+
+      // Delete selected polygon with Delete key
+      if (event.key === "Delete" && selectedPolygonId) {
+        deletePolygon(selectedPolygonId)
+      }
     }
-  }, [buildSession, polygonSession, roads])
+    window.addEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [completeBuildSession, cancelBuildSession, completePolygonSession, cancelPolygonSession, polygonSession.isActive, selectedPolygonId])
 
-  const handleClearCanvas = useCallback(() => {
-    setNodes([])
-    setRoads([])
-    setPolygons([])
-    setBackgroundImages([])
-    setBuildSession({
-      nodes: [],
-      isActive: false,
-      roadType: curvedRoads ? RoadType.BEZIER : RoadType.STRAIGHT,
-      roadWidth: defaultRoadWidth,
-    })
-    setPolygonSession({
-      points: [],
-      roadIds: [],
-      isActive: false,
-      fillColor: polygonFillColor,
-      strokeColor: polygonStrokeColor,
-      opacity: polygonOpacity,
-    })
-    setSelectedRoadId(null)
-    setSelectedNodeId(null)
-    setSelectedPolygonId(null)
-    setSelectedBackgroundImageId(null)
-    setConnectingFromNodeId(null)
-    setSelectedRoadForDisconnect(null)
-  }, [curvedRoads, defaultRoadWidth, polygonFillColor, polygonStrokeColor, polygonOpacity])
+  const getWorldCoordinates = (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent): { x: number; y: number } => {
+    const canvas = document.querySelector("canvas")
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const x = (e.clientX - rect.left - panOffset.x) / zoom
+    const y = (e.clientY - rect.top - panOffset.y) / zoom
+    return { x, y }
+  }
 
-  // Delete handlers
-  const handleDeleteRoad = useCallback((roadId: string) => {
+  const findNearbyNode = (x: number, y: number, excludeIds: string[] = []): Node | null => {
+    for (const node of nodes) {
+      if (excludeIds.includes(node.id)) continue
+      const distance = Math.sqrt((node.x - x) ** 2 + (node.y - y) ** 2)
+      if (distance <= snapDistance / zoom) {
+        return node
+      }
+    }
+    return null
+  }
+
+  const findNearbyControlPoint = (worldCoords: { x: number; y: number }): {
+    roadId: string
+    pointIndex: 0 | 1
+  } | null => {
+    if (!selectedNodeId) return null
+    const selectedNode = nodes.find((n) => n.id === selectedNodeId)
+    if (!selectedNode) return null
+
+    for (const roadId of selectedNode.connectedRoadIds) {
+      const road = roads.find((r) => r.id === roadId)
+      if (!road || road.type !== RoadType.BEZIER || !road.controlPoints) continue
+
+      if (road.startNodeId === selectedNodeId) {
+        const cp = road.controlPoints[0]
+        const distance = Math.sqrt((cp.x - worldCoords.x) ** 2 + (cp.y - worldCoords.y) ** 2)
+        if (distance < 10 / zoom) {
+          return { roadId: road.id, pointIndex: 0 }
+        }
+      }
+      if (road.endNodeId === selectedNodeId) {
+        const cp = road.controlPoints[1]
+        const distance = Math.sqrt((cp.x - worldCoords.x) ** 2 + (cp.y - worldCoords.y) ** 2)
+        if (distance < 10 / zoom) {
+          return { roadId: road.id, pointIndex: 1 }
+        }
+      }
+    }
+    return null
+  }
+
+  const findRoadAtPosition = (worldCoords: { x: number; y: number }): Road | null => {
+    const clickTolerance = 5 / zoom
+    for (const road of roads) {
+      const roadHalfWidth = road.width / 2 / zoom
+      const effectiveTolerance = roadHalfWidth + clickTolerance
+
+      if (road.type === RoadType.STRAIGHT) {
+        if (distToSegment(worldCoords, road.start, road.end) < effectiveTolerance) {
+          return road
+        }
+      } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+        const samples = 20
+        let p0 = road.start
+        for (let i = 1; i <= samples; i++) {
+          const t = i / samples
+          const mt = 1 - t
+          const p1x =
+            mt * mt * mt * road.start.x +
+            3 * mt * mt * t * road.controlPoints[0].x +
+            3 * mt * t * t * road.controlPoints[1].x +
+            t * t * t * road.end.x
+          const p1y =
+            mt * mt * mt * road.start.y +
+            3 * mt * mt * t * road.controlPoints[0].y +
+            3 * mt * t * t * road.controlPoints[1].y +
+            t * t * t * road.end.y
+          const p1 = { x: p1x, y: p1y }
+          if (distToSegment(worldCoords, p0, p1) < effectiveTolerance) {
+            return road
+          }
+          p0 = p1
+        }
+      }
+    }
+    return null
+  }
+
+  const findPolygonAtPosition = (worldCoords: { x: number; y: number }): Polygon | null => {
+    // Check polygons in reverse order (last drawn first)
+    for (let i = polygons.length - 1; i >= 0; i--) {
+      const polygon = polygons[i]
+      if (isPointInPolygon(worldCoords, polygon.points)) {
+        return polygon
+      }
+    }
+    return null
+  }
+
+  const findPolygonPointAtPosition = (worldCoords: { x: number; y: number }, polygonId: string): number | null => {
+    const polygon = polygons.find(p => p.id === polygonId)
+    if (!polygon) return null
+
+    const tolerance = 8 / zoom
+    for (let i = 0; i < polygon.points.length; i++) {
+      const point = polygon.points[i]
+      const distance = Math.sqrt((point.x - worldCoords.x) ** 2 + (point.y - worldCoords.y) ** 2)
+      if (distance <= tolerance) {
+        return i
+      }
+    }
+    return null
+  }
+
+  const getSnappedPosition = (x: number, y: number, excludeNodeIds: string[] = []) => {
+    const nearbyNode = findNearbyNode(x, y, excludeNodeIds)
+    if (nearbyNode) {
+      return { x: nearbyNode.x, y: nearbyNode.y, snappedToNodeId: nearbyNode.id }
+    }
+    if (snapEnabled) {
+      const gridSize = snapDistance
+      return {
+        x: Math.round(x / gridSize) * gridSize,
+        y: Math.round(y / gridSize) * gridSize,
+        snappedToNodeId: null,
+      }
+    }
+    return { x, y, snappedToNodeId: null }
+  }
+
+  const createRoadBetweenNodes = (startNodeId: string, endNodeId: string) => {
+    const startNode = nodes.find(n => n.id === startNodeId)
+    const endNode = nodes.find(n => n.id === endNodeId)
+    
+    if (!startNode || !endNode) return
+    
+    // Allow circular roads (same start and end node)
+    if (startNodeId === endNodeId) {
+      // Create a circular road
+      const roadId = `road-${Date.now()}`
+      const radius = 50 // Default radius for circular road
+      
+      const newRoad: Road = {
+        id: roadId,
+        start: { x: startNode.x, y: startNode.y },
+        end: { x: startNode.x, y: startNode.y },
+        startNodeId: startNodeId,
+        endNodeId: endNodeId,
+        type: RoadType.BEZIER,
+        width: defaultRoadWidth,
+        name: "", // Default empty name
+        controlPoints: [
+          { x: startNode.x + radius, y: startNode.y - radius },
+          { x: startNode.x - radius, y: startNode.y + radius }
+        ]
+      }
+      
+      setRoads(prev => [...prev, newRoad])
+      setNodes(prev => prev.map(node => {
+        if (node.id === startNodeId) {
+          return {
+            ...node,
+            connectedRoadIds: [...node.connectedRoadIds, roadId]
+          }
+        }
+        return node
+      }))
+      return
+    }
+    
+    // Check if road already exists between these nodes
+    const existingRoad = roads.find(road => 
+      (road.startNodeId === startNodeId && road.endNodeId === endNodeId) ||
+      (road.startNodeId === endNodeId && road.endNodeId === startNodeId)
+    )
+    
+    if (existingRoad) return // Road already exists
+    
+    const roadId = `road-${Date.now()}`
+    const newRoad: Road = {
+      id: roadId,
+      start: { x: startNode.x, y: startNode.y },
+      end: { x: endNode.x, y: endNode.y },
+      startNodeId: startNodeId,
+      endNodeId: endNodeId,
+      type: RoadType.STRAIGHT,
+      width: defaultRoadWidth,
+      name: "", // Default empty name
+    }
+    
+    setRoads(prev => [...prev, newRoad])
+    setNodes(prev => prev.map(node => {
+      if (node.id === startNodeId || node.id === endNodeId) {
+        return {
+          ...node,
+          connectedRoadIds: [...node.connectedRoadIds, roadId]
+        }
+      }
+      return node
+    }))
+  }
+
+  const disconnectRoadFromNode = (roadId: string) => {
+    const road = roads.find(r => r.id === roadId)
+    if (!road) return
+    
+    // Remove the road entirely
     setRoads(prev => prev.filter(r => r.id !== roadId))
+    
+    // Update node connections
     setNodes(prev => prev.map(node => ({
       ...node,
       connectedRoadIds: node.connectedRoadIds.filter(id => id !== roadId)
     })))
-    setSelectedRoadId(null)
-  }, [])
-
-  const handleDeleteNode = useCallback((nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId)
-    if (node) {
-      // Remove all connected roads
-      node.connectedRoadIds.forEach(roadId => {
-        setRoads(prev => prev.filter(r => r.id !== roadId))
-      })
-      // Remove the node
-      setNodes(prev => prev.filter(n => n.id !== nodeId))
-      setSelectedNodeId(null)
+    
+    // Clear selection if this road was selected
+    if (selectedRoadId === roadId) {
+      setSelectedRoadId(null)
     }
-  }, [nodes])
+    
+    // Clear disconnect selection
+    setSelectedRoadForDisconnect(null)
+  }
 
-  const handleDeletePolygon = useCallback((polygonId: string) => {
-    setPolygons(prev => prev.filter(p => p.id !== polygonId))
-    setSelectedPolygonId(null)
-  }, [])
+  const createNode = (x: number, y: number) => {
+    const snappedPos = getSnappedPosition(x, y)
+    
+    // Don't create if snapping to existing node
+    if (snappedPos.snappedToNodeId) return
+    
+    const newNodeId = `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+    const newNode: Node = {
+      id: newNodeId,
+      x: snappedPos.x,
+      y: snappedPos.y,
+      connectedRoadIds: [],
+      cp1: { x: snappedPos.x, y: snappedPos.y },
+      cp2: { x: snappedPos.x, y: snappedPos.y },
+    }
+    
+    setNodes(prev => [...prev, newNode])
+  }
 
-  // Update handlers
-  const handleUpdateRoadWidth = useCallback((roadId: string, newWidth: number) => {
-    setRoads(prev => prev.map(road => 
-      road.id === roadId ? { ...road, width: newWidth } : road
-    ))
-  }, [])
+  const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
+    const worldCoords = getWorldCoordinates(e)
+    setMousePosition(worldCoords)
 
-  const handleUpdateRoadName = useCallback((roadId: string, newName: string) => {
-    setRoads(prev => prev.map(road => 
-      road.id === roadId ? { ...road, name: newName } : road
-    ))
-  }, [])
+    if (drawingMode === "pan") {
+      setIsPanning(true)
+      setLastPanPoint({ x: e.clientX, y: e.clientY })
+      return
+    }
 
-  const handleUpdatePolygonName = useCallback((polygonId: string, newName: string) => {
-    setPolygons(prev => prev.map(polygon => 
-      polygon.id === polygonId ? { ...polygon, name: newName } : polygon
-    ))
-  }, [])
+    if (drawingMode === "add-node") {
+      createNode(worldCoords.x, worldCoords.y)
+      return
+    }
 
-  const handleUpdatePolygonFillColor = useCallback((polygonId: string, newColor: string) => {
-    setPolygons(prev => prev.map(polygon => 
-      polygon.id === polygonId ? { ...polygon, fillColor: newColor } : polygon
-    ))
-  }, [])
+    if (drawingMode === "polygon") {
+      if (!polygonSession.isActive) {
+        // Start new polygon
+        setPolygonSession(prev => ({
+          ...prev,
+          isActive: true,
+          points: [worldCoords],
+          roadIds: [],
+        }))
+      } else {
+        // Add point to existing polygon
+        const firstPoint = polygonSession.points[0]
+        const distanceToFirst = Math.sqrt(
+          (worldCoords.x - firstPoint.x) ** 2 + (worldCoords.y - firstPoint.y) ** 2
+        )
+        
+        // If clicking near first point and we have at least 3 points, close polygon
+        if (distanceToFirst < snapDistance / zoom && polygonSession.points.length >= 3) {
+          completePolygonSession()
+        } else {
+          // Add new point
+          setPolygonSession(prev => ({
+            ...prev,
+            points: [...prev.points, worldCoords],
+          }))
+        }
+      }
+      return
+    }
 
-  const handleUpdatePolygonStrokeColor = useCallback((polygonId: string, newColor: string) => {
-    setPolygons(prev => prev.map(polygon => 
-      polygon.id === polygonId ? { ...polygon, strokeColor: newColor } : polygon
-    ))
-  }, [])
+    if (drawingMode === "select") {
+      // Unified select mode - check for control points first, then nodes, then polygons, then roads
+      const clickedControlPoint = findNearbyControlPoint(worldCoords)
+      if (clickedControlPoint) {
+        setIsDraggingNode(false)
+        setDraggedControlPointInfo(clickedControlPoint)
+        return
+      }
 
-  const handleUpdatePolygonOpacity = useCallback((polygonId: string, newOpacity: number) => {
-    setPolygons(prev => prev.map(polygon => 
-      polygon.id === polygonId ? { ...polygon, opacity: newOpacity } : polygon
-    ))
-  }, [])
+      const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
+      if (clickedNode) {
+        setSelectedNodeId(clickedNode.id)
+        setSelectedRoadId(null)
+        setSelectedPolygonId(null)
+        setIsDraggingNode(true)
+        setDraggedNodeId(clickedNode.id)
+        return
+      }
 
-  // Zoom handlers
-  const handleZoomIn = useCallback(() => {
-    setZoom(prev => Math.min(prev * 1.2, 5))
-  }, [])
+      const clickedPolygon = findPolygonAtPosition(worldCoords)
+      if (clickedPolygon) {
+        setSelectedPolygonId(clickedPolygon.id)
+        setSelectedRoadId(null)
+        setSelectedNodeId(null)
 
-  const handleZoomOut = useCallback(() => {
-    setZoom(prev => Math.max(prev / 1.2, 0.1))
-  }, [])
+        // Check if clicking on a polygon point for editing
+        const pointIndex = findPolygonPointAtPosition(worldCoords, clickedPolygon.id)
+        if (pointIndex !== null) {
+          setIsDraggingPolygonPoint(true)
+          setDraggedPolygonPointIndex(pointIndex)
+        } else {
+          // Start dragging the entire polygon
+          setIsDraggingPolygon(true)
+          // Calculate offset from polygon centroid
+          let centroidX = 0, centroidY = 0
+          for (const point of clickedPolygon.points) {
+            centroidX += point.x
+            centroidY += point.y
+          }
+          centroidX /= clickedPolygon.points.length
+          centroidY /= clickedPolygon.points.length
+          setPolygonDragOffset({
+            x: worldCoords.x - centroidX,
+            y: worldCoords.y - centroidY
+          })
+        }
+        return
+      }
+      
+      const clickedRoad = findRoadAtPosition(worldCoords)
+      if (clickedRoad) {
+        setSelectedRoadId(clickedRoad.id)
+        setSelectedNodeId(null)
+        setSelectedPolygonId(null)
+      } else {
+        setSelectedRoadId(null)
+        setSelectedNodeId(null)
+        setSelectedPolygonId(null)
+      }
+      return
+    }
 
-  const handleResetZoom = useCallback(() => {
-    setZoom(1)
-    setPanOffset({ x: 0, y: 0 })
-  }, [])
+    if (drawingMode === "connect") {
+      const clickedNode = findNearbyNode(worldCoords.x, worldCoords.y)
+      if (clickedNode) {
+        if (!connectingFromNodeId) {
+          // Start connection from this node
+          setConnectingFromNodeId(clickedNode.id)
+          setSelectedNodeId(clickedNode.id)
+        } else {
+          // Complete connection to this node (allow same node for circular roads)
+          createRoadBetweenNodes(connectingFromNodeId, clickedNode.id)
+          setConnectingFromNodeId(null)
+          setSelectedNodeId(null)
+        }
+      } else {
+        // Clicked empty space, cancel connection
+        setConnectingFromNodeId(null)
+        setSelectedNodeId(null)
+      }
+      return
+    }
 
-  // Calculate road length
-  const calculateRoadLength = useCallback((road: Road): number => {
+    if (drawingMode === "disconnect") {
+      const clickedRoad = findRoadAtPosition(worldCoords)
+      
+      if (!selectedRoadForDisconnect) {
+        // First click: select road to disconnect
+        if (clickedRoad) {
+          setSelectedRoadForDisconnect(clickedRoad.id)
+          setSelectedRoadId(clickedRoad.id)
+        }
+      } else {
+        // Second click: confirm deletion
+        if (clickedRoad && clickedRoad.id === selectedRoadForDisconnect) {
+          disconnectRoadFromNode(clickedRoad.id)
+        } else {
+          // Clicked different road or empty space, select new road or cancel
+          if (clickedRoad) {
+            setSelectedRoadForDisconnect(clickedRoad.id)
+            setSelectedRoadId(clickedRoad.id)
+          } else {
+            setSelectedRoadForDisconnect(null)
+            setSelectedRoadId(null)
+          }
+        }
+      }
+      return
+    }
+
+    if (drawingMode === "nodes") {
+      const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+      const currentSession = buildSessionRef.current
+
+      if (currentSession.isActive) {
+        const firstNodeInSession = currentSession.nodes[0]
+        
+        // Check for closing the path by clicking on the first node
+        if (
+          snappedPos.snappedToNodeId &&
+          snappedPos.snappedToNodeId === firstNodeInSession.id &&
+          currentSession.nodes.length > 2
+        ) {
+          const lastPointInSession = currentSession.nodes[currentSession.nodes.length - 1]
+          const roadId = `road-${Date.now()}`
+          let closingRoad: Road
+
+          const isLastSegmentBezier = buildSessionRef.current.roadType === RoadType.BEZIER
+
+          if (isLastSegmentBezier && lastPointInSession.cp2) {
+            const cp2ForStartOfClosingRoad = lastPointInSession.cp2
+            const cp1ForEndOfClosingRoad = {
+              x: firstNodeInSession.x - (lastPointInSession.cp2.x - lastPointInSession.x),
+              y: firstNodeInSession.y - (lastPointInSession.cp2.y - lastPointInSession.y),
+            }
+            closingRoad = {
+              id: roadId,
+              start: { x: lastPointInSession.x, y: lastPointInSession.y },
+              end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
+              startNodeId: lastPointInSession.id,
+              endNodeId: firstNodeInSession.id,
+              type: RoadType.BEZIER,
+              width: currentSession.roadWidth,
+              name: "", // Default empty name
+              controlPoints: [cp2ForStartOfClosingRoad, cp1ForEndOfClosingRoad],
+            }
+          } else {
+            closingRoad = {
+              id: roadId,
+              start: { x: lastPointInSession.x, y: lastPointInSession.y },
+              end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
+              startNodeId: lastPointInSession.id,
+              endNodeId: firstNodeInSession.id,
+              type: RoadType.STRAIGHT,
+              width: currentSession.roadWidth,
+              name: "", // Default empty name
+            }
+          }
+          setRoads((prev) => [...prev, closingRoad])
+          setNodes((prevNodes) =>
+            prevNodes.map((n) => {
+              if (n.id === lastPointInSession.id || n.id === firstNodeInSession.id) {
+                return { ...n, connectedRoadIds: [...n.connectedRoadIds, roadId] }
+              }
+              return n
+            }),
+          )
+          completeBuildSession()
+          return
+        }
+
+        // Add new point to existing session
+        const existingNodeInfo = snappedPos.snappedToNodeId
+          ? nodes.find((n) => n.id === snappedPos.snappedToNodeId)
+          : null
+        const newNodeId =
+          snappedPos.snappedToNodeId || `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+
+        const newPoint: NodePoint = {
+          id: newNodeId,
+          x: snappedPos.x,
+          y: snappedPos.y,
+          connectedRoadIds: existingNodeInfo ? existingNodeInfo.connectedRoadIds : [],
+          cp1: { x: snappedPos.x, y: snappedPos.y },
+          cp2: { x: snappedPos.x, y: snappedPos.y },
+        }
+
+        setBuildSession((prev) => ({
+          ...prev,
+          nodes: [...prev.nodes, newPoint],
+          roadType: RoadType.STRAIGHT,
+        }))
+        setIsDraggingNewPointHandle(true)
+      } else {
+        // Start new session
+        let startNodePoint: NodePoint
+        const existingNode = snappedPos.snappedToNodeId ? nodes.find((n) => n.id === snappedPos.snappedToNodeId) : null
+
+        if (existingNode) {
+          startNodePoint = {
+            ...existingNode,
+            cp1: existingNode.cp1 || { x: existingNode.x, y: existingNode.y },
+            cp2: existingNode.cp2 || { x: existingNode.x, y: existingNode.y },
+          }
+        } else {
+          const newNodeId = `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+          startNodePoint = {
+            id: newNodeId,
+            x: snappedPos.x,
+            y: snappedPos.y,
+            connectedRoadIds: [],
+            cp1: { x: snappedPos.x, y: snappedPos.y },
+            cp2: { x: snappedPos.x, y: snappedPos.y },
+          }
+          setNodes((prev) => [
+            ...prev,
+            {
+              id: startNodePoint.id,
+              x: startNodePoint.x,
+              y: startNodePoint.y,
+              connectedRoadIds: [],
+              cp1: startNodePoint.cp1,
+              cp2: startNodePoint.cp2,
+            },
+          ])
+        }
+
+        setBuildSession({
+          nodes: [startNodePoint],
+          isActive: true,
+          roadType: RoadType.STRAIGHT,
+          roadWidth: defaultRoadWidth,
+          currentSegmentStartNodeIndex: 0,
+        })
+        setIsDraggingNewPointHandle(true)
+      }
+    }
+  }
+
+  const handleMouseMove = (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+    const worldCoords = getWorldCoordinates(e)
+    setMousePosition(worldCoords)
+
+    if (isPanning) {
+      const deltaX = e.clientX - lastPanPoint.x
+      const deltaY = e.clientY - lastPanPoint.y
+      setPanOffset((prev) => ({ x: prev.x + deltaX, y: prev.y + deltaY }))
+      setLastPanPoint({ x: e.clientX, y: e.clientY })
+      return
+    }
+
+    if (isDraggingPolygon && selectedPolygonId) {
+      const polygon = polygons.find(p => p.id === selectedPolygonId)
+      if (polygon) {
+        // Calculate new centroid position
+        const newCentroidX = worldCoords.x - polygonDragOffset.x
+        const newCentroidY = worldCoords.y - polygonDragOffset.y
+        
+        // Calculate current centroid
+        let currentCentroidX = 0, currentCentroidY = 0
+        for (const point of polygon.points) {
+          currentCentroidX += point.x
+          currentCentroidY += point.y
+        }
+        currentCentroidX /= polygon.points.length
+        currentCentroidY /= polygon.points.length
+        
+        // Calculate offset to apply to all points
+        const offsetX = newCentroidX - currentCentroidX
+        const offsetY = newCentroidY - currentCentroidY
+        
+        // Update polygon points
+        setPolygons(prev => prev.map(p => {
+          if (p.id === selectedPolygonId) {
+            return {
+              ...p,
+              points: p.points.map(point => ({
+                x: point.x + offsetX,
+                y: point.y + offsetY
+              })),
+              area: calculatePolygonArea(p.points.map(point => ({
+                x: point.x + offsetX,
+                y: point.y + offsetY
+              })), scaleMetersPerPixel)
+            }
+          }
+          return p
+        }))
+      }
+      return
+    }
+
+    if (isDraggingPolygonPoint && selectedPolygonId && draggedPolygonPointIndex !== null) {
+      const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+      setPolygons(prev => prev.map(p => {
+        if (p.id === selectedPolygonId) {
+          const newPoints = [...p.points]
+          newPoints[draggedPolygonPointIndex!] = { x: snappedPos.x, y: snappedPos.y }
+          return {
+            ...p,
+            points: newPoints,
+            area: calculatePolygonArea(newPoints, scaleMetersPerPixel)
+          }
+        }
+        return p
+      }))
+      return
+    }
+
+    if (draggedControlPointInfo) {
+      const { roadId, pointIndex } = draggedControlPointInfo
+      setRoads((prevRoads) =>
+        prevRoads.map((r) => {
+          if (r.id === roadId && r.controlPoints) {
+            const newControlPoints = [...r.controlPoints] as [{ x: number; y: number }, { x: number; y: number }]
+            newControlPoints[pointIndex] = { x: worldCoords.x, y: worldCoords.y }
+            return { ...r, controlPoints: newControlPoints }
+          }
+          return r
+        }),
+      )
+      return
+    }
+
+    if (isDraggingNode && draggedNodeId) {
+      const node = nodes.find((n) => n.id === draggedNodeId)
+      if (node) {
+        const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y, [draggedNodeId])
+        setNodes((prev) => prev.map((n) => (n.id === draggedNodeId ? { ...n, ...snappedPos } : n)))
+        setRoads((prevRoads) =>
+          prevRoads.map((r) => {
+            if (r.startNodeId === draggedNodeId) return { ...r, start: { x: snappedPos.x, y: snappedPos.y } }
+            if (r.endNodeId === draggedNodeId) return { ...r, end: { x: snappedPos.x, y: snappedPos.y } }
+            return r
+          }),
+        )
+      }
+      return
+    }
+
+    const currentSession = buildSessionRef.current
+    if (
+      drawingMode === "nodes" &&
+      currentSession.isActive &&
+      isDraggingNewPointHandle &&
+      currentSession.nodes.length > 0
+    ) {
+      const currentPointIndex = currentSession.nodes.length - 1
+      const currentPoint = currentSession.nodes[currentPointIndex]
+
+      const dx = worldCoords.x - currentPoint.x
+      const dy = worldCoords.y - currentPoint.y
+
+      const newCp2 = { x: currentPoint.x + dx, y: currentPoint.y + dy }
+      const newCp1ForCurrent = { x: currentPoint.x - dx, y: currentPoint.y - dy }
+
+      setBuildSession((prev) => {
+        const updatedNodes = [...prev.nodes]
+        updatedNodes[currentPointIndex] = {
+          ...updatedNodes[currentPointIndex],
+          cp1: newCp1ForCurrent,
+          cp2: newCp2,
+        }
+        return {
+          ...prev,
+          nodes: updatedNodes,
+          roadType: RoadType.BEZIER,
+        }
+      })
+    }
+  }
+
+  const handleMouseUp = (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+    setIsPanning(false)
+    setIsDraggingNode(false)
+    setDraggedNodeId(null)
+    setDraggedControlPointInfo(null)
+    setIsDraggingPolygon(false)
+    setIsDraggingPolygonPoint(false)
+    setDraggedPolygonPointIndex(null)
+
+    const currentSession = buildSessionRef.current
+    const wasDraggingHandle = isDraggingNewPointHandle
+    setIsDraggingNewPointHandle(false)
+
+    if (drawingMode === "nodes" && currentSession.isActive) {
+      if (currentSession.nodes.length >= 2) {
+        const lastPoint = currentSession.nodes[currentSession.nodes.length - 1]
+        const secondLastPoint = currentSession.nodes[currentSession.nodes.length - 2]
+
+        const newNodesToAdd: Node[] = []
+        if (!nodes.find((n) => n.id === secondLastPoint.id)) {
+          newNodesToAdd.push({
+            id: secondLastPoint.id,
+            x: secondLastPoint.x,
+            y: secondLastPoint.y,
+            connectedRoadIds: secondLastPoint.connectedRoadIds || [],
+            cp1: secondLastPoint.cp1,
+            cp2: secondLastPoint.cp2,
+          })
+        }
+        if (!nodes.find((n) => n.id === lastPoint.id)) {
+          newNodesToAdd.push({
+            id: lastPoint.id,
+            x: lastPoint.x,
+            y: lastPoint.y,
+            connectedRoadIds: lastPoint.connectedRoadIds || [],
+            cp1: lastPoint.cp1,
+            cp2: lastPoint.cp2,
+          })
+        }
+        if (newNodesToAdd.length > 0) {
+          setNodes((prev) => [...prev, ...newNodesToAdd])
+        }
+
+        const roadId = `road-${Date.now()}`
+        let newRoad: Road
+
+        if (currentSession.roadType === RoadType.BEZIER && wasDraggingHandle) {
+          const cp2_start = secondLastPoint.cp2 || { x: secondLastPoint.x, y: secondLastPoint.y }
+          const cp1_end = lastPoint.cp1 || { x: lastPoint.x, y: lastPoint.y }
+          newRoad = {
+            id: roadId,
+            start: { x: secondLastPoint.x, y: secondLastPoint.y },
+            end: { x: lastPoint.x, y: lastPoint.y },
+            startNodeId: secondLastPoint.id,
+            endNodeId: lastPoint.id,
+            type: RoadType.BEZIER,
+            width: currentSession.roadWidth,
+            name: "", // Default empty name
+            controlPoints: [cp2_start, cp1_end],
+          }
+        } else {
+          newRoad = {
+            id: roadId,
+            start: { x: secondLastPoint.x, y: secondLastPoint.y },
+            end: { x: lastPoint.x, y: lastPoint.y },
+            startNodeId: secondLastPoint.id,
+            endNodeId: lastPoint.id,
+            type: RoadType.STRAIGHT,
+            width: currentSession.roadWidth,
+            name: "", // Default empty name
+            controlPoints: [
+              { x: secondLastPoint.x, y: secondLastPoint.y },
+              { x: lastPoint.x, y: lastPoint.y },
+            ],
+          }
+        }
+        setRoads((prev) => [...prev, newRoad])
+
+        setNodes((prevNodes) =>
+          prevNodes.map((n) => {
+            if (n.id === secondLastPoint.id || n.id === lastPoint.id) {
+              const updatedNode = { ...n, connectedRoadIds: [...new Set([...n.connectedRoadIds, roadId])] }
+              if (n.id === secondLastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
+                updatedNode.cp2 = newRoad.controlPoints[0]
+              } else if (n.id === secondLastPoint.id && newRoad.type === RoadType.STRAIGHT) {
+                updatedNode.cp2 = { x: n.x, y: n.y }
+              }
+              if (n.id === lastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
+                updatedNode.cp1 = newRoad.controlPoints[1]
+              } else if (n.id === lastPoint.id && newRoad.type === RoadType.STRAIGHT) {
+                updatedNode.cp1 = { x: n.x, y: n.y }
+              }
+              return updatedNode
+            }
+            return n
+          }),
+        )
+
+        setBuildSession((prevSession) => {
+          const updatedSessionNodes = prevSession.nodes.map((node, index) => {
+            if (index === prevSession.nodes.length - 1) {
+              return {
+                ...node,
+                cp2: { x: node.x, y: node.y },
+                cp1: prevSession.nodes.length === 1 ? { x: node.x, y: node.y } : node.cp1,
+              }
+            }
+            return node
+          })
+
+          return {
+            ...prevSession,
+            nodes: updatedSessionNodes,
+            currentSegmentStartNodeIndex: updatedSessionNodes.length - 1,
+            roadType: RoadType.STRAIGHT,
+            isDraggingControlPoint: null,
+          }
+        })
+      }
+    }
+  }
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (event: globalThis.MouseEvent) => {
+      if (
+        isPanning ||
+        draggedControlPointInfo ||
+        (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
+        isDraggingNode ||
+        isDraggingPolygon ||
+        isDraggingPolygonPoint
+      ) {
+        handleMouseMove(event as any)
+      }
+    }
+    const handleGlobalMouseUp = (event: globalThis.MouseEvent) => {
+      if (
+        isPanning ||
+        draggedControlPointInfo ||
+        (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
+        isDraggingNode ||
+        isDraggingPolygon ||
+        isDraggingPolygonPoint
+      ) {
+        handleMouseUp(event as any)
+      }
+    }
+
+    if (
+      isPanning ||
+      draggedControlPointInfo ||
+      (drawingMode === "nodes" && buildSessionRef.current.isActive && isDraggingNewPointHandle) ||
+      isDraggingNode ||
+      isDraggingPolygon ||
+      isDraggingPolygonPoint
+    ) {
+      window.addEventListener("mousemove", handleGlobalMouseMove)
+      window.addEventListener("mouseup", handleGlobalMouseUp)
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove)
+      window.removeEventListener("mouseup", handleGlobalMouseUp)
+    }
+  }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, isDraggingPolygon, isDraggingPolygonPoint, panOffset, zoom])
+
+  const calculateRoadLength = (road: Road): number => {
     if (road.type === RoadType.BEZIER && road.controlPoints) {
       let len = 0
       const steps = 20
@@ -739,240 +1068,333 @@ export default function RoadBuilder() {
     const dx = road.end.x - road.start.x
     const dy = road.end.y - road.start.y
     return Math.sqrt(dx * dx + dy * dy) * scaleMetersPerPixel
-  }, [scaleMetersPerPixel])
+  }
 
-  // Calculate totals
-  const totalLength = roads.reduce((sum, road) => sum + calculateRoadLength(road), 0)
-  const totalArea = polygons.reduce((sum, polygon) => {
-    if (polygon.points.length < 3) return sum
-    
-    let area = 0
-    for (let i = 0; i < polygon.points.length; i++) {
-      const j = (i + 1) % polygon.points.length
-      area += polygon.points[i].x * polygon.points[j].y
-      area -= polygon.points[j].x * polygon.points[i].y
+  const deleteNode = (nodeId: string) => {
+    const nodeToDelete = nodes.find((n) => n.id === nodeId)
+    if (!nodeToDelete) return
+
+    const roadsToRemove = roads.filter((r) => r.startNodeId === nodeId || r.endNodeId === nodeId)
+    const roadIdsToRemove = roadsToRemove.map((r) => r.id)
+
+    setRoads((prev) => prev.filter((r) => !roadIdsToRemove.includes(r.id)))
+    setNodes((prev) =>
+      prev
+        .filter((n) => n.id !== nodeId)
+        .map((n) => ({
+          ...n,
+          connectedRoadIds: n.connectedRoadIds.filter((id) => !roadIdsToRemove.includes(id)),
+        })),
+    )
+    if (selectedNodeId === nodeId) setSelectedNodeId(null)
+    if (buildSessionRef.current.isActive && buildSessionRef.current.nodes.some((n) => n.id === nodeId)) {
+      cancelBuildSession()
     }
-    area = Math.abs(area) / 2
-    return sum + area * scaleMetersPerPixel * scaleMetersPerPixel
-  }, 0)
+  }
 
-  // Get selected items
-  const selectedRoad = selectedRoadId ? roads.find(r => r.id === selectedRoadId) : null
-  const selectedNode = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
-  const selectedPolygon = selectedPolygonId ? polygons.find(p => p.id === selectedPolygonId) : null
+  const deleteRoad = (roadId: string) => {
+    const roadToDelete = roads.find((r) => r.id === roadId)
+    if (!roadToDelete) return
 
-  // Update polygon session when settings change
-  useEffect(() => {
-    if (polygonSession.isActive) {
+    setRoads((prev) => prev.filter((r) => r.id !== roadId))
+    setNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        connectedRoadIds: n.connectedRoadIds.filter((id) => id !== roadId),
+      })),
+    )
+    if (selectedRoadId === roadId) setSelectedRoadId(null)
+  }
+
+  const deletePolygon = (polygonId: string) => {
+    setPolygons((prev) => prev.filter((p) => p.id !== polygonId))
+    if (selectedPolygonId === polygonId) setSelectedPolygonId(null)
+  }
+
+  const clearCanvas = () => {
+    setNodes([])
+    setRoads([])
+    setPolygons([])
+    cancelBuildSession()
+    cancelPolygonSession()
+    setSelectedNodeId(null)
+    setSelectedRoadId(null)
+    setSelectedPolygonId(null)
+    setConnectingFromNodeId(null)
+    setSelectedRoadForDisconnect(null)
+  }
+
+  const removeLastElement = () => {
+    const currentSession = buildSessionRef.current
+    if (currentSession.isActive && currentSession.nodes.length > 0) {
+      if (currentSession.nodes.length === 1) {
+        const startNodeId = currentSession.nodes[0].id
+        cancelBuildSession()
+        const nodeToRemove = nodes.find((n) => n.id === startNodeId && n.connectedRoadIds.length === 0)
+        if (nodeToRemove && !roads.some((r) => r.startNodeId === startNodeId || r.endNodeId === startNodeId)) {
+          setNodes((prev) => prev.filter((n) => n.id !== startNodeId))
+        }
+        return
+      }
+
+      const roadToRemove = roads.find(
+        (r) =>
+          r.endNodeId === currentSession.nodes[currentSession.nodes.length - 1].id &&
+          r.startNodeId === currentSession.nodes[currentSession.nodes.length - 2]?.id,
+      )
+      if (roadToRemove) {
+        deleteRoad(roadToRemove.id)
+      }
+
+      const lastPointRemoved = currentSession.nodes[currentSession.nodes.length - 1]
+      const remainingNodesInSession = currentSession.nodes.slice(0, -1)
+
+      setBuildSession((prev) => ({
+        ...prev,
+        nodes: remainingNodesInSession,
+        roadType: remainingNodesInSession.length > 1 ? prev.roadType : RoadType.STRAIGHT,
+      }))
+
+      const nodeInMainList = nodes.find((n) => n.id === lastPointRemoved.id)
+      if (
+        nodeInMainList &&
+        nodeInMainList.connectedRoadIds.length === 0 &&
+        !roads.some((r) => r.startNodeId === lastPointRemoved.id || r.endNodeId === lastPointRemoved.id)
+      ) {
+        const updatedNode = nodes.find((n) => n.id === lastPointRemoved.id)
+        if (updatedNode && updatedNode.connectedRoadIds.length === 0) {
+          setNodes((prev) => prev.filter((n) => n.id !== lastPointRemoved.id))
+        }
+      }
+    } else if (polygonSession.isActive && polygonSession.points.length > 0) {
+      // Remove last point from polygon session
       setPolygonSession(prev => ({
         ...prev,
-        fillColor: polygonFillColor,
-        strokeColor: polygonStrokeColor,
-        opacity: polygonOpacity,
+        points: prev.points.slice(0, -1),
       }))
+    } else if (polygons.length > 0) {
+      const lastPolygon = polygons[polygons.length - 1]
+      deletePolygon(lastPolygon.id)
+    } else if (roads.length > 0) {
+      const lastRoad = roads[roads.length - 1]
+      deleteRoad(lastRoad.id)
     }
-  }, [polygonFillColor, polygonStrokeColor, polygonOpacity, polygonSession.isActive])
+  }
+
+  const zoomIn = () => setZoom((prev) => Math.min(prev * 1.2, 5))
+  const zoomOut = () => setZoom((prev) => Math.max(prev / 1.2, 0.1))
+  const resetZoom = () => {
+    setZoom(1)
+    setPanOffset({ x: 0, y: 0 })
+  }
+
+  const onUpdateRoadWidth = (roadId: string, newWidth: number) => {
+    setRoads((prevRoads) => prevRoads.map((r) => (r.id === roadId ? { ...r, width: newWidth } : r)))
+  }
+
+  const onUpdateRoadName = (roadId: string, newName: string) => {
+    setRoads((prevRoads) => prevRoads.map((r) => (r.id === roadId ? { ...r, name: newName } : r)))
+  }
+
+  const onUpdatePolygonName = (polygonId: string, newName: string) => {
+    setPolygons((prev) => prev.map((p) => (p.id === polygonId ? { ...p, name: newName } : p)))
+  }
+
+  const onUpdatePolygonFillColor = (polygonId: string, newColor: string) => {
+    setPolygons((prev) => prev.map((p) => (p.id === polygonId ? { ...p, fillColor: newColor } : p)))
+  }
+
+  const onUpdatePolygonStrokeColor = (polygonId: string, newColor: string) => {
+    setPolygons((prev) => prev.map((p) => (p.id === polygonId ? { ...p, strokeColor: newColor } : p)))
+  }
+
+  const onUpdatePolygonOpacity = (polygonId: string, newOpacity: number) => {
+    setPolygons((prev) => prev.map((p) => (p.id === polygonId ? { ...p, opacity: newOpacity } : p)))
+  }
+
+  const selectedRoadData = roads.find((r) => r.id === selectedRoadId) || null
+  const selectedNodeData = nodes.find((n) => n.id === selectedNodeId) || null
+  const selectedPolygonData = polygons.find((p) => p.id === selectedPolygonId) || null
+  const totalLength = roads.reduce((sum, road) => sum + calculateRoadLength(road), 0)
+  const totalArea = polygons.reduce((sum, polygon) => sum + (polygon.area || 0), 0)
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      <StatusBar
-        roadCount={roads.length}
-        nodeCount={nodes.length}
-        polygonCount={polygons.length}
-        totalLength={totalLength}
-        totalArea={totalArea}
-        zoom={zoom}
-        buildSession={buildSession}
-        polygonSession={polygonSession}
-      />
-      
-      <div className="flex-1 flex">
-        {/* Left Sidebar */}
-        <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
-          <div className="p-4 space-y-6">
-            <DrawingTools
-              drawingMode={drawingMode}
-              onDrawingModeChange={setDrawingMode}
-            />
-            
-            <Separator />
-            
+    <div className="flex h-screen bg-gray-50">
+      {/* Left Sidebar - Drawing Tools Only */}
+      <div className="w-40 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <DrawingTools drawingMode={drawingMode} onDrawingModeChange={setDrawingMode} />
+          <ActionsPanel onRemoveLastElement={removeLastElement} onClearCanvas={clearCanvas} />
+        </div>
+      </div>
+
+      {/* Main Canvas Area */}
+      <div className="flex-1 flex flex-col">
+        <StatusBar
+          roadCount={roads.length}
+          nodeCount={nodes.length}
+          polygonCount={polygons.length}
+          totalLength={totalLength}
+          totalArea={totalArea}
+          zoom={zoom}
+          buildSession={buildSession}
+          polygonSession={polygonSession}
+        />
+        <RoadCanvas
+          nodes={nodes}
+          roads={roads}
+          polygons={polygons}
+          buildSession={buildSession}
+          polygonSession={polygonSession}
+          drawingMode={drawingMode}
+          snapEnabled={snapEnabled}
+          snapDistance={snapDistance}
+          defaultRoadWidth={defaultRoadWidth}
+          showRoadLengths={showRoadLengths}
+          showRoadNames={showRoadNames}
+          showPolygons={showPolygons}
+          scaleMetersPerPixel={scaleMetersPerPixel}
+          selectedRoadId={selectedRoadId}
+          selectedNodeId={selectedNodeId}
+          selectedPolygonId={selectedPolygonId}
+          selectedNodeData={selectedNodeData}
+          connectingFromNodeId={connectingFromNodeId}
+          selectedRoadForDisconnect={selectedRoadForDisconnect}
+          panOffset={panOffset}
+          zoom={zoom}
+          mousePosition={mousePosition}
+          isActivelyDrawingCurve={isDraggingNewPointHandle && buildSession.roadType === RoadType.BEZIER}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onCompleteBuildSession={completeBuildSession}
+          onCancelBuildSession={cancelBuildSession}
+          onCompletePolygonSession={completePolygonSession}
+          onCancelPolygonSession={cancelPolygonSession}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onResetZoom={resetZoom}
+          onUpdateRoadName={onUpdateRoadName}
+          onUpdatePolygonName={onUpdatePolygonName}
+        />
+      </div>
+
+      {/* Right Sidebar - Settings and Edit Panels */}
+      <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Always show Display Options */}
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Auto Snapping</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={snapEnabled}
+                      onChange={(e) => setSnapEnabled(e.target.checked)}
+                      className="mr-2"
+                    />
+                    <span className="text-xs">Snap</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Lengths</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showRoadLengths}
+                      onChange={(e) => setShowRoadLengths(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Names</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showRoadNames}
+                      onChange={(e) => setShowRoadNames(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Show Polygons</span>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={showPolygons}
+                      onChange={(e) => setShowPolygons(e.target.checked)}
+                      className="mr-2"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Show Road Settings only when Build tool is selected */}
+          {drawingMode === "nodes" && (
             <RoadSettings
               defaultRoadWidth={defaultRoadWidth}
               scaleMetersPerPixel={scaleMetersPerPixel}
               snapDistance={snapDistance}
-              curvedRoads={curvedRoads}
+              curvedRoads={false}
+              snapEnabled={snapEnabled}
+              showRoadLengths={showRoadLengths}
+              showRoadNames={showRoadNames}
               onDefaultRoadWidthChange={setDefaultRoadWidth}
               onScaleChange={setScaleMetersPerPixel}
               onSnapDistanceChange={setSnapDistance}
-              onCurvedRoadsChange={setCurvedRoads}
+              onCurvedRoadsChange={() => {}}
+              onSnapEnabledChange={setSnapEnabled}
+              onShowRoadLengthsChange={setShowRoadLengths}
+              onShowRoadNamesChange={setShowRoadNames}
             />
-            
-            <Separator />
-            
+          )}
+
+          {/* Show Polygon Settings only when Draw Polygon tool is selected */}
+          {drawingMode === "polygon" && (
             <PolygonSettings
-              fillColor={polygonFillColor}
-              strokeColor={polygonStrokeColor}
-              opacity={polygonOpacity}
-              onFillColorChange={setPolygonFillColor}
-              onStrokeColorChange={setPolygonStrokeColor}
-              onOpacityChange={setPolygonOpacity}
+              fillColor={polygonSession.fillColor}
+              strokeColor={polygonSession.strokeColor}
+              opacity={polygonSession.opacity}
+              showPolygons={showPolygons}
+              onFillColorChange={(color) => setPolygonSession(prev => ({ ...prev, fillColor: color }))}
+              onStrokeColorChange={(color) => setPolygonSession(prev => ({ ...prev, strokeColor: color }))}
+              onOpacityChange={(opacity) => setPolygonSession(prev => ({ ...prev, opacity }))}
+              onShowPolygonsChange={setShowPolygons}
             />
-            
-            <Separator />
-            
-            <BackgroundImagePanel
-              backgroundImages={backgroundImages}
-              showBackgroundLayer={showBackgroundLayer}
-              selectedBackgroundImageId={selectedBackgroundImageId}
-              onAddBackgroundImage={handleAddBackgroundImage}
-              onUpdateBackgroundImage={handleUpdateBackgroundImage}
-              onRemoveBackgroundImage={handleRemoveBackgroundImage}
-              onToggleBackgroundLayer={setShowBackgroundLayer}
-              onSelectBackgroundImage={handleSelectBackgroundImage}
-            />
-            
-            <Separator />
-            
-            <ActionsPanel
-              onRemoveLastElement={handleRemoveLastElement}
-              onClearCanvas={handleClearCanvas}
-            />
-          </div>
-        </div>
+          )}
 
-        {/* Main Canvas */}
-        <div className="flex-1 flex flex-col">
-          {/* Canvas Controls */}
-          <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Toggle
-                pressed={showRoadLengths}
-                onPressedChange={setShowRoadLengths}
-                aria-label="Show road lengths"
-                size="sm"
-              >
-                Lengths
-              </Toggle>
-              <Toggle
-                pressed={showRoadNames}
-                onPressedChange={setShowRoadNames}
-                aria-label="Show road names"
-                size="sm"
-              >
-                Names
-              </Toggle>
-              <Toggle
-                pressed={showPolygons}
-                onPressedChange={setShowPolygons}
-                aria-label="Show polygons"
-                size="sm"
-              >
-                {showPolygons ? <Eye size={16} /> : <EyeOff size={16} />}
-                Polygons
-              </Toggle>
-            </div>
-            
-            {buildSession.isActive && (
-              <div className="flex items-center gap-2 ml-auto">
-                <Button size="sm" variant="outline" onClick={handleCancelBuildSession}>
-                  <X size={16} className="mr-1" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleCompleteBuildSession}>
-                  <Check size={16} className="mr-1" />
-                  Complete
-                </Button>
-              </div>
-            )}
-            
-            {polygonSession.isActive && (
-              <div className="flex items-center gap-2 ml-auto">
-                <Button size="sm" variant="outline" onClick={handleCancelPolygonSession}>
-                  <X size={16} className="mr-1" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleCompletePolygonSession}>
-                  <Check size={16} className="mr-1" />
-                  Complete
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <RoadCanvas
-            ref={canvasRef}
-            nodes={nodes}
-            roads={roads}
-            polygons={polygons}
-            backgroundImages={backgroundImages}
-            buildSession={buildSession}
-            polygonSession={polygonSession}
-            drawingMode={drawingMode}
-            snapEnabled={snapEnabled}
-            snapDistance={snapDistance}
-            defaultRoadWidth={defaultRoadWidth}
-            showRoadLengths={showRoadLengths}
-            showRoadNames={showRoadNames}
-            showPolygons={showPolygons}
-            showBackgroundLayer={showBackgroundLayer}
-            scaleMetersPerPixel={scaleMetersPerPixel}
-            selectedRoadId={selectedRoadId}
-            selectedNodeId={selectedNodeId}
-            selectedPolygonId={selectedPolygonId}
-            selectedBackgroundImageId={selectedBackgroundImageId}
-            selectedNodeData={selectedNode}
-            connectingFromNodeId={connectingFromNodeId}
-            selectedRoadForDisconnect={selectedRoadForDisconnect}
-            panOffset={panOffset}
-            zoom={zoom}
-            mousePosition={mousePosition}
-            isActivelyDrawingCurve={isActivelyDrawingCurve}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onCompleteBuildSession={handleCompleteBuildSession}
-            onCancelBuildSession={handleCancelBuildSession}
-            onCompletePolygonSession={handleCompletePolygonSession}
-            onCancelPolygonSession={handleCancelPolygonSession}
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
-            onResetZoom={handleResetZoom}
-            onUpdateRoadName={handleUpdateRoadName}
-            onUpdatePolygonName={handleUpdatePolygonName}
-            onUpdateBackgroundImage={handleUpdateBackgroundImage}
-            onSelectBackgroundImage={handleSelectBackgroundImage}
-            onAddBackgroundImageFromDrop={handleAddBackgroundImageFromDrop}
-          />
-        </div>
-
-        {/* Right Sidebar */}
-        <div className="w-80 bg-white border-l border-gray-200 overflow-y-auto">
-          <div className="p-4 space-y-6">
-            <SelectedItemPanel
-              selectedRoad={selectedRoad}
-              selectedNode={selectedNode}
-              onDeleteRoad={handleDeleteRoad}
-              onDeleteNode={handleDeleteNode}
-              calculateRoadLength={calculateRoadLength}
-              onUpdateRoadWidth={handleUpdateRoadWidth}
-              onUpdateRoadName={handleUpdateRoadName}
-            />
-            
-            {selectedPolygon && (
-              <>
-                <Separator />
-                <SelectedPolygonPanel
-                  selectedPolygon={selectedPolygon}
-                  onDeletePolygon={handleDeletePolygon}
-                  onUpdatePolygonName={handleUpdatePolygonName}
-                  onUpdatePolygonFillColor={handleUpdatePolygonFillColor}
-                  onUpdatePolygonStrokeColor={handleUpdatePolygonStrokeColor}
-                  onUpdatePolygonOpacity={handleUpdatePolygonOpacity}
-                />
-              </>
-            )}
-          </div>
+          {/* Show Edit Selection panels only when Select tool is selected and something is selected */}
+          {drawingMode === "select" && (
+            <>
+              <SelectedItemPanel
+                selectedRoad={selectedRoadData}
+                selectedNode={selectedNodeData}
+                onDeleteRoad={deleteRoad}
+                onDeleteNode={deleteNode}
+                calculateRoadLength={calculateRoadLength}
+                onUpdateRoadWidth={onUpdateRoadWidth}
+                onUpdateRoadName={onUpdateRoadName}
+              />
+              <SelectedPolygonPanel
+                selectedPolygon={selectedPolygonData}
+                onDeletePolygon={deletePolygon}
+                onUpdatePolygonName={onUpdatePolygonName}
+                onUpdatePolygonFillColor={onUpdatePolygonFillColor}
+                onUpdatePolygonStrokeColor={onUpdatePolygonStrokeColor}
+                onUpdatePolygonOpacity={onUpdatePolygonOpacity}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>
