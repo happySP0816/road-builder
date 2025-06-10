@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useEffect, type MouseEvent, useState, forwardRef, useImperativeHandle } from "react"
+import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
@@ -30,9 +30,9 @@ interface RoadCanvasProps {
   zoom: number
   mousePosition: { x: number; y: number } | null
   isActivelyDrawingCurve?: boolean
-  onMouseDown: (canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement>) => void
-  onMouseMove: (canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => void
-  onMouseUp: (canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => void
+  onMouseDown: (e: MouseEvent<HTMLCanvasElement>) => void
+  onMouseMove: (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => void
+  onMouseUp: (e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => void
   onCompleteBuildSession: () => void
   onCancelBuildSession: () => void
   onCompletePolygonSession: () => void
@@ -45,7 +45,7 @@ interface RoadCanvasProps {
   onUpdatePolygonName?: (polygonId: string, newName: string) => void
 }
 
-const RoadCanvas = forwardRef<HTMLCanvasElement, RoadCanvasProps>(({
+export default function RoadCanvas({
   nodes,
   roads,
   polygons,
@@ -80,16 +80,13 @@ const RoadCanvas = forwardRef<HTMLCanvasElement, RoadCanvasProps>(({
   onResetZoom,
   onUpdateRoadName,
   onUpdatePolygonName,
-}, ref) => {
+}: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [editingRoadName, setEditingRoadName] = useState<string | null>(null)
   const [tempRoadName, setTempRoadName] = useState("")
   const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
   const [tempPolygonName, setTempPolygonName] = useState("")
-
-  // Expose the canvas ref to parent component
-  useImperativeHandle(ref, () => canvasRef.current!, [])
 
   useEffect(() => {
     const handleResize = () => {
@@ -833,11 +830,7 @@ const RoadCanvas = forwardRef<HTMLCanvasElement, RoadCanvasProps>(({
 
   return (
     <div ref={containerRef} className="relative flex-1 bg-white">
-      <canvas 
-        ref={canvasRef} 
-        onMouseDown={(e) => canvasRef.current && onMouseDown(canvasRef.current, e)} 
-        className={`w-full h-full ${getCursorClass()}`} 
-      />
+      <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
 
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
         Mode: {getModeDisplayName()}{getStatusMessage()}
@@ -944,8 +937,4 @@ const RoadCanvas = forwardRef<HTMLCanvasElement, RoadCanvasProps>(({
       </div>
     </div>
   )
-})
-
-RoadCanvas.displayName = "RoadCanvas"
-
-export default RoadCanvas
+}

@@ -69,19 +69,17 @@ export default function RoadBuilder() {
   const draggedPolygonId = useRef<string | null>(null)
   const draggedPolygonPointIndex = useRef<number | null>(null)
   const draggedControlPointInfo = useRef<{ nodeId: string; roadId: string; type: "cp1" | "cp2" } | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Mouse event handlers
-  const handleMouseDown = useCallback((canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+  const handleMouseDown = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
+    const canvas = e.currentTarget
     const rect = canvas.getBoundingClientRect()
-    const clientX = 'clientX' in e ? e.clientX : e.clientX
-    const clientY = 'clientY' in e ? e.clientY : e.clientY
-    const x = (clientX - rect.left - panOffset.x) / zoom
-    const y = (clientY - rect.top - panOffset.y) / zoom
+    const x = (e.clientX - rect.left - panOffset.x) / zoom
+    const y = (e.clientY - rect.top - panOffset.y) / zoom
 
     if (drawingMode === "pan") {
       isDragging.current = true
-      lastMousePos.current = { x: clientX, y: clientY }
+      lastMousePos.current = { x: e.clientX, y: e.clientY }
       return
     }
 
@@ -448,10 +446,11 @@ export default function RoadBuilder() {
     }
   }, [drawingMode, panOffset, zoom, nodes, roads, polygons, selectedNodeId, selectedPolygonId, connectingFromNodeId, selectedRoadForDisconnect, snapEnabled, snapDistance, defaultRoadWidth, curvedRoads, buildSession, polygonSession, polygonFillColor, polygonStrokeColor, polygonOpacity])
 
-  const handleMouseMove = useCallback((canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+  const handleMouseMove = useCallback((e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+    const canvas = e.currentTarget as HTMLCanvasElement
     const rect = canvas.getBoundingClientRect()
-    const clientX = 'clientX' in e ? e.clientX : e.clientX
-    const clientY = 'clientY' in e ? e.clientY : e.clientY
+    const clientX = 'clientX' in e ? e.clientX : (e as any).clientX
+    const clientY = 'clientY' in e ? e.clientY : (e as any).clientY
     const x = (clientX - rect.left - panOffset.x) / zoom
     const y = (clientY - rect.top - panOffset.y) / zoom
 
@@ -532,7 +531,7 @@ export default function RoadBuilder() {
     }
   }, [drawingMode, panOffset, zoom])
 
-  const handleMouseUp = useCallback((canvas: HTMLCanvasElement, e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+  const handleMouseUp = useCallback((e: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
     isDragging.current = false
     draggedNodeId.current = null
     draggedPolygonId.current = null
@@ -543,15 +542,13 @@ export default function RoadBuilder() {
   // Add global mouse event listeners for dragging
   useEffect(() => {
     const handleGlobalMouseMove = (e: globalThis.MouseEvent) => {
-      if (isDragging.current && canvasRef.current) {
-        handleMouseMove(canvasRef.current, e)
+      if (isDragging.current) {
+        handleMouseMove(e as any)
       }
     }
 
     const handleGlobalMouseUp = (e: globalThis.MouseEvent) => {
-      if (canvasRef.current) {
-        handleMouseUp(canvasRef.current, e)
-      }
+      handleMouseUp(e as any)
     }
 
     document.addEventListener('mousemove', handleGlobalMouseMove)
@@ -867,7 +864,6 @@ export default function RoadBuilder() {
         
         <div className="flex-1 relative">
           <RoadCanvas
-            ref={canvasRef}
             nodes={nodes}
             roads={roads}
             polygons={polygons}
