@@ -1,18 +1,19 @@
-"use client"
-
 import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
   polygons: Polygon[]
+  backgroundImages: BackgroundImage[]
+  showBackgroundLayer: boolean
+  selectedBackgroundImageId: string | null
   buildSession: BuildSession
   polygonSession: PolygonSession
-  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
+  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "background-image"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -49,6 +50,9 @@ export default function RoadCanvas({
   nodes,
   roads,
   polygons,
+  backgroundImages,
+  showBackgroundLayer,
+  selectedBackgroundImageId,
   buildSession,
   polygonSession,
   drawingMode,
@@ -229,6 +233,52 @@ export default function RoadCanvas({
     ctx.lineTo(mousePosition.x, mousePosition.y)
     ctx.stroke()
     ctx.setLineDash([])
+  }
+
+  // Draw background images
+  const drawBackgroundImages = (ctx: CanvasRenderingContext2D) => {
+    if (!showBackgroundLayer) return
+
+    backgroundImages
+      .filter(img => img.visible)
+      .forEach((image) => {
+        const img = new Image()
+        img.onload = () => {
+          ctx.save()
+          
+          // Apply transformations
+          ctx.globalAlpha = image.opacity
+          
+          // Translate to image center for rotation
+          const centerX = image.x + image.width / 2
+          const centerY = image.y + image.height / 2
+          ctx.translate(centerX, centerY)
+          ctx.rotate((image.rotation * Math.PI) / 180)
+          
+          // Draw image centered at origin
+          ctx.drawImage(img, -image.width / 2, -image.height / 2, image.width, image.height)
+          
+          // Draw selection outline if selected
+          if (selectedBackgroundImageId === image.id) {
+            ctx.strokeStyle = "#3b82f6"
+            ctx.lineWidth = 2 / zoom
+            ctx.setLineDash([5 / zoom, 5 / zoom])
+            ctx.strokeRect(-image.width / 2, -image.height / 2, image.width, image.height)
+            ctx.setLineDash([])
+            
+            // Draw resize handles
+            const handleSize = 8 / zoom
+            ctx.fillStyle = "#3b82f6"
+            ctx.fillRect(-image.width / 2 - handleSize / 2, -image.height / 2 - handleSize / 2, handleSize, handleSize)
+            ctx.fillRect(image.width / 2 - handleSize / 2, -image.height / 2 - handleSize / 2, handleSize, handleSize)
+            ctx.fillRect(-image.width / 2 - handleSize / 2, image.height / 2 - handleSize / 2, handleSize, handleSize)
+            ctx.fillRect(image.width / 2 - handleSize / 2, image.height / 2 - handleSize / 2, handleSize, handleSize)
+          }
+          
+          ctx.restore()
+        }
+        img.src = image.url
+      })
   }
 
   // Helper function to calculate road length
@@ -508,11 +558,15 @@ export default function RoadCanvas({
 
     drawGrid(ctx, canvas.width, canvas.height)
     
-    // Draw polygons first (behind roads)
+    // Draw background images first (behind everything)
+    drawBackgroundImages(ctx)
+    
+    // Draw polygons
     if (showPolygons) {
       polygons.forEach((polygon) => drawPolygon(ctx, polygon, polygon.id === selectedPolygonId))
     }
     
+    // Draw roads and nodes
     roads.forEach((road) => drawRoad(ctx, road, road.id === selectedRoadId, road.id === selectedRoadForDisconnect))
     nodes.forEach((node) => drawNode(ctx, node, node.id === selectedNodeId, node.id === connectingFromNodeId))
 
@@ -537,6 +591,9 @@ export default function RoadCanvas({
     nodes,
     roads,
     polygons,
+    backgroundImages,
+    showBackgroundLayer,
+    selectedBackgroundImageId,
     buildSession,
     polygonSession,
     selectedRoadId,
@@ -558,232 +615,6 @@ export default function RoadCanvas({
     editingPolygonName,
   ])
 
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    const gridSize = snapDistance
-    ctx.strokeStyle = "#f3f4f6"
-    ctx.lineWidth = 0.5 / zoom
-
-    const startX = Math.floor(-panOffset.x / zoom / gridSize) * gridSize
-    const startY = Math.floor(-panOffset.y / zoom / gridSize) * gridSize
-    const endX = startX + width / zoom + gridSize
-    const endY = startY + height / zoom + gridSize
-
-    for (let x = startX; x <= endX; x += gridSize) {
-      ctx.beginPath()
-      ctx.moveTo(x, startY)
-      ctx.lineTo(x, endY)
-      ctx.stroke()
-    }
-    for (let y = startY; y <= endY; y += gridSize) {
-      ctx.beginPath()
-      ctx.moveTo(startX, y)
-      ctx.lineTo(endX, y)
-      ctx.stroke()
-    }
-  }
-
-  const drawNode = (ctx: CanvasRenderingContext2D, node: Node | NodePoint, isSelected: boolean, isConnecting?: boolean) => {
-    const actualNode = node as Node
-    let fillColor = "#6b7280" // Default gray
-    
-    if (isConnecting) {
-      fillColor = "#3b82f6" // Blue for connecting node
-    } else if (isSelected) {
-      fillColor = "#3b82f6" // Blue for selected
-    } else if ((actualNode.connectedRoadIds?.length || 0) > 0) {
-      fillColor = "#059669" // Green for connected nodes
-    }
-    
-    ctx.fillStyle = fillColor
-    ctx.strokeStyle = "#9ca3af"
-    ctx.lineWidth = 2 / zoom
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, 8 / zoom, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-
-    if (isSelected || isConnecting) {
-      ctx.strokeStyle = isConnecting ? "#3b82f6" : "#3b82f6"
-      ctx.lineWidth = 2 / zoom
-      ctx.setLineDash([3 / zoom, 3 / zoom])
-      ctx.beginPath()
-      ctx.arc(node.x, node.y, 15 / zoom, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-  }
-
-  const drawRoad = (ctx: CanvasRenderingContext2D, road: Road, isSelected: boolean, isSelectedForDisconnect?: boolean) => {
-    // Set color based on selection state
-    let strokeColor = "#374151" // Default
-    if (isSelectedForDisconnect) {
-      strokeColor = "#ef4444" // Red for disconnect selection
-    } else if (isSelected) {
-      strokeColor = "#3b82f6" // Blue for normal selection
-    }
-    
-    ctx.strokeStyle = strokeColor
-    ctx.lineWidth = road.width / zoom
-    ctx.lineCap = "round"
-    ctx.lineJoin = "round"
-
-    if (road.type === RoadType.BEZIER && road.controlPoints) {
-      ctx.beginPath()
-      ctx.moveTo(road.start.x, road.start.y)
-      ctx.bezierCurveTo(
-        road.controlPoints[0].x,
-        road.controlPoints[0].y,
-        road.controlPoints[1].x,
-        road.controlPoints[1].y,
-        road.end.x,
-        road.end.y,
-      )
-      ctx.stroke()
-    } else if (road.type === RoadType.CURVED) {
-      const cpX = (road.start.x + road.end.x) / 2 + (road.end.y - road.start.y) * 0.3
-      const cpY = (road.start.y + road.end.y) / 2 + (road.start.x - road.end.x) * 0.3
-      ctx.beginPath()
-      ctx.moveTo(road.start.x, road.start.y)
-      ctx.quadraticCurveTo(cpX, cpY, road.end.x, road.end.y)
-      ctx.stroke()
-    } else {
-      ctx.beginPath()
-      ctx.moveTo(road.start.x, road.start.y)
-      ctx.lineTo(road.end.x, road.end.y)
-      ctx.stroke()
-    }
-
-    // Draw road name with length - only show if showRoadNames is true
-    if (showRoadNames && (road.name || showRoadLengths)) {
-      const length = calculateRoadLength(road)
-      let displayText = ""
-      
-      if (road.name && road.name.trim() !== "") {
-        displayText = road.name
-        if (showRoadLengths) {
-          displayText += ` (${length.toFixed(1)}m)`
-        }
-      } else if (showRoadLengths) {
-        displayText = `${length.toFixed(1)}m`
-      }
-      
-      if (displayText) {
-        drawTextAlongPath(ctx, displayText, road)
-      }
-    }
-
-    if (isSelected || isSelectedForDisconnect) {
-      ctx.globalAlpha = 0.4
-      ctx.lineWidth = (road.width + 4) / zoom
-      if (road.type === RoadType.BEZIER && road.controlPoints) {
-        ctx.beginPath()
-        ctx.moveTo(road.start.x, road.start.y)
-        ctx.bezierCurveTo(
-          road.controlPoints[0].x,
-          road.controlPoints[0].y,
-          road.controlPoints[1].x,
-          road.controlPoints[1].y,
-          road.end.x,
-          road.end.y,
-        )
-        ctx.stroke()
-      } else if (road.type === RoadType.CURVED) {
-        const cpX = (road.start.x + road.end.x) / 2 + (road.end.y - road.start.y) * 0.3
-        const cpY = (road.start.y + road.end.y) / 2 + (road.start.x - road.end.x) * 0.3
-        ctx.beginPath()
-        ctx.moveTo(road.start.x, road.start.y)
-        ctx.quadraticCurveTo(cpX, cpY, road.end.x, road.end.y)
-        ctx.stroke()
-      } else {
-        ctx.beginPath()
-        ctx.moveTo(road.start.x, road.start.y)
-        ctx.lineTo(road.end.x, road.end.y)
-        ctx.stroke()
-      }
-      ctx.globalAlpha = 1.0
-    }
-  }
-
-  const drawBuildSessionPreview = (
-    ctx: CanvasRenderingContext2D,
-    session: BuildSession,
-    currentMousePos: { x: number; y: number } | null,
-    isDraggingCurve?: boolean,
-  ) => {
-    if (!session.isActive || session.nodes.length === 0) return
-
-    ctx.lineWidth = session.roadWidth / zoom
-    ctx.strokeStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
-    ctx.fillStyle = isDraggingCurve ? "#ef4444" : "#a1a1aa"
-
-    session.nodes.forEach((node) => {
-      drawNode(ctx, node, false)
-      if (node.cp1 && (node.cp1.x !== node.x || node.cp1.y !== node.y)) {
-        ctx.beginPath()
-        ctx.arc(node.cp1.x, node.cp1.y, 4 / zoom, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.beginPath()
-        ctx.moveTo(node.x, node.y)
-        ctx.lineTo(node.cp1.x, node.cp1.y)
-        ctx.setLineDash([2 / zoom, 2 / zoom])
-        ctx.stroke()
-        ctx.setLineDash([])
-      }
-      if (node.cp2 && (node.cp2.x !== node.x || node.cp2.y !== node.y)) {
-        ctx.beginPath()
-        ctx.arc(node.cp2.x, node.cp2.y, 4 / zoom, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.beginPath()
-        ctx.moveTo(node.x, node.y)
-        ctx.lineTo(node.cp2.x, node.cp2.y)
-        ctx.setLineDash([2 / zoom, 2 / zoom])
-        ctx.stroke()
-        ctx.setLineDash([])
-      }
-    })
-
-    for (let i = 0; i < session.nodes.length - 1; i++) {
-      const p1 = session.nodes[i]
-      const p2 = session.nodes[i + 1]
-      ctx.beginPath()
-      ctx.moveTo(p1.x, p1.y)
-
-      const segmentIsBezier =
-        p1.cp2 && p2.cp1 && (p1.cp2.x !== p1.x || p1.cp2.y !== p1.y || p2.cp1.x !== p2.x || p2.cp1.y !== p2.y)
-
-      if (segmentIsBezier) {
-        ctx.bezierCurveTo(p1.cp2!.x, p1.cp2!.y, p2.cp1!.x, p2.cp1!.y, p2.x, p2.y)
-      } else {
-        ctx.lineTo(p2.x, p2.y)
-      }
-      ctx.stroke()
-    }
-
-    if (currentMousePos) {
-      const lastPoint = session.nodes[session.nodes.length - 1]
-      ctx.beginPath()
-      ctx.moveTo(lastPoint.x, lastPoint.y)
-
-      if (session.roadType === RoadType.BEZIER && lastPoint.cp2 && isDraggingCurve) {
-        const tempCp1ForMouse = {
-          x: currentMousePos.x - (lastPoint.cp2.x - lastPoint.x),
-          y: currentMousePos.y - (lastPoint.cp2.y - lastPoint.y),
-        }
-        ctx.bezierCurveTo(
-          lastPoint.cp2.x,
-          lastPoint.cp2.y,
-          tempCp1ForMouse.x,
-          tempCp1ForMouse.y,
-          currentMousePos.x,
-          currentMousePos.y,
-        )
-      } else {
-        ctx.lineTo(currentMousePos.x, currentMousePos.y)
-      }
-      ctx.stroke()
-    }
-  }
-
   const getCursorClass = () => {
     if (drawingMode === "pan") return "cursor-grab"
     if (drawingMode === "select") return "cursor-pointer"
@@ -792,6 +623,7 @@ export default function RoadCanvas({
     if (drawingMode === "disconnect") return "cursor-pointer"
     if (drawingMode === "add-node") return "cursor-crosshair"
     if (drawingMode === "polygon") return "cursor-crosshair"
+    if (drawingMode === "background-image") return "cursor-move"
     return "cursor-default"
   }
 
@@ -804,6 +636,7 @@ export default function RoadCanvas({
       case "disconnect": return "Disconnect"
       case "add-node": return "Add Node"
       case "polygon": return "Draw Polygon"
+      case "background-image": return "Background Images"
       default: return drawingMode
     }
   }
@@ -820,6 +653,9 @@ export default function RoadCanvas({
     }
     if (drawingMode === "select" && selectedPolygonId) {
       return " (Drag polygon or points to edit)"
+    }
+    if (drawingMode === "background-image") {
+      return " (Click and drag to move images)"
     }
     return ""
   }
@@ -881,60 +717,4 @@ export default function RoadCanvas({
       )}
 
       {/* Inline Polygon Name Editor - always show for polygons regardless of showRoadNames */}
-      {selectedPolygon && onUpdatePolygonName && (
-        <div
-          className="absolute z-10"
-          style={{
-            left: `${getPolygonNamePosition(selectedPolygon).x}px`,
-            top: `${getPolygonNamePosition(selectedPolygon).y}px`,
-            transform: 'translate(-50%, -50%)',
-          }}
-        >
-          {editingPolygonName === selectedPolygon.id ? (
-            <div className="bg-white border border-blue-300 rounded-lg shadow-lg p-2 w-[200px]">
-              <Input
-                type="text"
-                value={tempPolygonName}
-                onChange={(e) => setTempPolygonName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handlePolygonNameSubmit(selectedPolygon.id)
-                  } else if (e.key === "Escape") {
-                    handlePolygonNameCancel()
-                  }
-                }}
-                onBlur={() => handlePolygonNameSubmit(selectedPolygon.id)}
-                placeholder="Enter polygon name..."
-                className="text-sm"
-                autoFocus
-              />
-            </div>
-          ) : (
-            <div
-              className="group relative inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 cursor-pointer border-2 border-white/20 backdrop-blur-sm w-[200px]"
-              onClick={() => handlePolygonNameClick(selectedPolygon.id, selectedPolygon.name || "")}
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 blur-sm"></div>
-              <span className="relative z-10 drop-shadow-sm">
-                {selectedPolygon.name || "+ Add label"}
-              </span>
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-white/10 to-white/5 group-hover:from-white/20 group-hover:to-white/10 transition-all duration-200"></div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <Button variant="outline" size="icon" onClick={onZoomIn}>
-          <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="icon" onClick={onZoomOut}>
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={onResetZoom} className="text-xs px-2">
-          {(zoom * 100).toFixed(0)}%
-        </Button>
-      </div>
-    </div>
-  )
-}
+      {selectedPolygon && onUpdate
