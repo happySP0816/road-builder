@@ -4,12 +4,13 @@ import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
   polygons: Polygon[]
+  backgroundImages: BackgroundImage[]
   buildSession: BuildSession
   polygonSession: PolygonSession
   drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
@@ -19,10 +20,12 @@ interface RoadCanvasProps {
   showRoadLengths: boolean
   showRoadNames: boolean
   showPolygons: boolean
+  showBackgroundLayer: boolean
   scaleMetersPerPixel: number
   selectedRoadId: string | null
   selectedNodeId: string | null
   selectedPolygonId: string | null
+  selectedBackgroundImageId: string | null
   selectedNodeData: Node | null
   connectingFromNodeId?: string | null
   selectedRoadForDisconnect?: string | null
@@ -43,12 +46,16 @@ interface RoadCanvasProps {
   onAddRoad?: (road: Omit<Road, "id">) => void
   onUpdateRoadName?: (roadId: string, newName: string) => void
   onUpdatePolygonName?: (polygonId: string, newName: string) => void
+  onUpdateBackgroundImage?: (id: string, updates: Partial<BackgroundImage>) => void
+  onSelectBackgroundImage?: (id: string | null) => void
+  onAddBackgroundImageFromDrop?: (image: BackgroundImage) => void
 }
 
 export default function RoadCanvas({
   nodes,
   roads,
   polygons,
+  backgroundImages,
   buildSession,
   polygonSession,
   drawingMode,
@@ -57,10 +64,12 @@ export default function RoadCanvas({
   showRoadLengths,
   showRoadNames,
   showPolygons,
+  showBackgroundLayer,
   scaleMetersPerPixel,
   selectedRoadId,
   selectedNodeId,
   selectedPolygonId,
+  selectedBackgroundImageId,
   selectedNodeData,
   connectingFromNodeId,
   selectedRoadForDisconnect,
@@ -80,6 +89,9 @@ export default function RoadCanvas({
   onResetZoom,
   onUpdateRoadName,
   onUpdatePolygonName,
+  onUpdateBackgroundImage,
+  onSelectBackgroundImage,
+  onAddBackgroundImageFromDrop,
 }: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -87,6 +99,7 @@ export default function RoadCanvas({
   const [tempRoadName, setTempRoadName] = useState("")
   const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
   const [tempPolygonName, setTempPolygonName] = useState("")
+  const [isDragOverCanvas, setIsDragOverCanvas] = useState(false)
 
   useEffect(() => {
     const handleResize = () => {
@@ -99,6 +112,62 @@ export default function RoadCanvas({
     handleResize()
     return () => window.removeEventListener("resize", handleResize)
   }, [])
+
+  // Handle drag and drop for images onto canvas
+  const handleCanvasDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOverCanvas(true)
+  }
+
+  const handleCanvasDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOverCanvas(false)
+  }
+
+  const handleCanvasDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOverCanvas(false)
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      const file = files[0]
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const result = event.target?.result as string
+          if (result && onAddBackgroundImageFromDrop) {
+            const img = new Image()
+            img.onload = () => {
+              const rect = canvasRef.current?.getBoundingClientRect()
+              if (rect) {
+                // Convert drop position to canvas coordinates
+                const canvasX = (e.clientX - rect.left - panOffset.x) / zoom
+                const canvasY = (e.clientY - rect.top - panOffset.y) / zoom
+                
+                const newImage: BackgroundImage = {
+                  id: `bg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  name: file.name,
+                  url: result,
+                  x: canvasX - img.naturalWidth / 2, // Center on drop point
+                  y: canvasY - img.naturalHeight / 2,
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                  originalWidth: img.naturalWidth,
+                  originalHeight: img.naturalHeight,
+                  opacity: 0.7,
+                  rotation: 0,
+                  visible: true,
+                }
+                onAddBackgroundImageFromDrop(newImage)
+              }
+            }
+            img.src = result
+          }
+        }
+        reader.readAsDataURL(file)
+      }
+    }
+  }
 
   // Calculate road name position for inline editing
   const getRoadNamePosition = (road: Road) => {
@@ -335,6 +404,51 @@ export default function RoadCanvas({
     }
   }
 
+  const drawBackgroundImage = (ctx: CanvasRenderingContext2D, image: BackgroundImage, isSelected: boolean) => {
+    if (!image.visible) return
+
+    const img = new Image()
+    img.onload = () => {
+      ctx.save()
+      
+      // Set opacity
+      ctx.globalAlpha = image.opacity
+      
+      // Apply rotation if needed
+      if (image.rotation !== 0) {
+        const centerX = image.x + image.width / 2
+        const centerY = image.y + image.height / 2
+        ctx.translate(centerX, centerY)
+        ctx.rotate((image.rotation * Math.PI) / 180)
+        ctx.translate(-centerX, -centerY)
+      }
+      
+      // Draw the image
+      ctx.drawImage(img, image.x, image.y, image.width, image.height)
+      
+      // Draw selection outline
+      if (isSelected) {
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = "#3b82f6"
+        ctx.lineWidth = 2 / zoom
+        ctx.setLineDash([5 / zoom, 5 / zoom])
+        ctx.strokeRect(image.x, image.y, image.width, image.height)
+        ctx.setLineDash([])
+        
+        // Draw resize handles
+        const handleSize = 8 / zoom
+        ctx.fillStyle = "#3b82f6"
+        ctx.fillRect(image.x - handleSize/2, image.y - handleSize/2, handleSize, handleSize)
+        ctx.fillRect(image.x + image.width - handleSize/2, image.y - handleSize/2, handleSize, handleSize)
+        ctx.fillRect(image.x - handleSize/2, image.y + image.height - handleSize/2, handleSize, handleSize)
+        ctx.fillRect(image.x + image.width - handleSize/2, image.y + image.height - handleSize/2, handleSize, handleSize)
+      }
+      
+      ctx.restore()
+    }
+    img.src = image.url
+  }
+
   const drawPolygon = (ctx: CanvasRenderingContext2D, polygon: Polygon, isSelected: boolean) => {
     if (polygon.points.length < 3) return
 
@@ -508,7 +622,12 @@ export default function RoadCanvas({
 
     drawGrid(ctx, canvas.width, canvas.height)
     
-    // Draw polygons first (behind roads)
+    // Draw background images first (behind everything)
+    if (showBackgroundLayer) {
+      backgroundImages.forEach((image) => drawBackgroundImage(ctx, image, image.id === selectedBackgroundImageId))
+    }
+    
+    // Draw polygons next (behind roads)
     if (showPolygons) {
       polygons.forEach((polygon) => drawPolygon(ctx, polygon, polygon.id === selectedPolygonId))
     }
@@ -533,15 +652,28 @@ export default function RoadCanvas({
     }
 
     ctx.restore()
+
+    // Draw drag over overlay
+    if (isDragOverCanvas) {
+      ctx.fillStyle = "rgba(59, 130, 246, 0.1)"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.strokeStyle = "#3b82f6"
+      ctx.lineWidth = 3
+      ctx.setLineDash([10, 10])
+      ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10)
+      ctx.setLineDash([])
+    }
   }, [
     nodes,
     roads,
     polygons,
+    backgroundImages,
     buildSession,
     polygonSession,
     selectedRoadId,
     selectedNodeId,
     selectedPolygonId,
+    selectedBackgroundImageId,
     selectedNodeData,
     connectingFromNodeId,
     selectedRoadForDisconnect,
@@ -552,10 +684,12 @@ export default function RoadCanvas({
     showRoadLengths,
     showRoadNames,
     showPolygons,
+    showBackgroundLayer,
     scaleMetersPerPixel,
     snapDistance,
     isActivelyDrawingCurve,
     editingPolygonName,
+    isDragOverCanvas,
   ])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -821,6 +955,9 @@ export default function RoadCanvas({
     if (drawingMode === "select" && selectedPolygonId) {
       return " (Drag polygon or points to edit)"
     }
+    if (isDragOverCanvas) {
+      return " (Drop image to place on map)"
+    }
     return ""
   }
 
@@ -830,7 +967,14 @@ export default function RoadCanvas({
 
   return (
     <div ref={containerRef} className="relative flex-1 bg-white">
-      <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
+      <canvas 
+        ref={canvasRef} 
+        onMouseDown={onMouseDown} 
+        onDragOver={handleCanvasDragOver}
+        onDragLeave={handleCanvasDragLeave}
+        onDrop={handleCanvasDrop}
+        className={`w-full h-full ${getCursorClass()} ${isDragOverCanvas ? 'border-2 border-blue-400 border-dashed' : ''}`} 
+      />
 
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
         Mode: {getModeDisplayName()}{getStatusMessage()}
