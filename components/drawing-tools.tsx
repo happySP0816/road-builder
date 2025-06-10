@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon, Edit } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon, Image } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon") => void
+  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "background"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "background") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -46,6 +46,21 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
           >
             <Hexagon size={16} />
             <span>Draw</span>
+          </Toggle>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Background</h3>
+        <div className="grid grid-cols-1 gap-1">
+          <Toggle
+            pressed={drawingMode === "background"}
+            onPressedChange={() => onDrawingModeChange("background")}
+            aria-label="Background mode"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
+          >
+            <Image size={16} />
+            <span>Images</span>
           </Toggle>
         </div>
       </div>
