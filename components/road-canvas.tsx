@@ -4,12 +4,15 @@ import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
   roads: Road[]
   polygons: Polygon[]
+  backgroundImages: BackgroundImage[]
+  showBackgroundLayer: boolean
+  selectedBackgroundImageId: string | null
   buildSession: BuildSession
   polygonSession: PolygonSession
   drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
@@ -43,12 +46,17 @@ interface RoadCanvasProps {
   onAddRoad?: (road: Omit<Road, "id">) => void
   onUpdateRoadName?: (roadId: string, newName: string) => void
   onUpdatePolygonName?: (polygonId: string, newName: string) => void
+  onUpdateBackgroundImage?: (id: string, updates: Partial<BackgroundImage>) => void
+  onSelectBackgroundImage?: (id: string | null) => void
 }
 
 export default function RoadCanvas({
   nodes,
   roads,
   polygons,
+  backgroundImages,
+  showBackgroundLayer,
+  selectedBackgroundImageId,
   buildSession,
   polygonSession,
   drawingMode,
@@ -80,6 +88,8 @@ export default function RoadCanvas({
   onResetZoom,
   onUpdateRoadName,
   onUpdatePolygonName,
+  onUpdateBackgroundImage,
+  onSelectBackgroundImage,
 }: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -87,6 +97,9 @@ export default function RoadCanvas({
   const [tempRoadName, setTempRoadName] = useState("")
   const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
   const [tempPolygonName, setTempPolygonName] = useState("")
+  const [loadedImages, setLoadedImages] = useState<Map<string, HTMLImageElement>>(new Map())
+  const [isDraggingBackground, setIsDraggingBackground] = useState(false)
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     const handleResize = () => {
@@ -99,6 +112,102 @@ export default function RoadCanvas({
     handleResize()
     return () => window.removeEventListener("resize", handleResize)
   }, [])
+
+  // Load background images
+  useEffect(() => {
+    const newLoadedImages = new Map(loadedImages)
+    
+    backgroundImages.forEach((bgImage) => {
+      if (!newLoadedImages.has(bgImage.id)) {
+        const img = new Image()
+        img.onload = () => {
+          newLoadedImages.set(bgImage.id, img)
+          setLoadedImages(new Map(newLoadedImages))
+        }
+        img.src = bgImage.url
+      }
+    })
+
+    // Remove images that are no longer needed
+    const currentImageIds = new Set(backgroundImages.map(img => img.id))
+    for (const [id] of newLoadedImages) {
+      if (!currentImageIds.has(id)) {
+        newLoadedImages.delete(id)
+      }
+    }
+    
+    setLoadedImages(newLoadedImages)
+  }, [backgroundImages])
+
+  // Handle background image interaction
+  const handleBackgroundImageInteraction = (e: MouseEvent<HTMLCanvasElement>) => {
+    if (drawingMode !== "select" || !showBackgroundLayer) return false
+
+    const canvas = canvasRef.current
+    if (!canvas) return false
+
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = (e.clientX - rect.left - panOffset.x) / zoom
+    const canvasY = (e.clientY - rect.top - panOffset.y) / zoom
+
+    // Check if clicking on a background image (in reverse order for proper layering)
+    for (let i = backgroundImages.length - 1; i >= 0; i--) {
+      const bgImage = backgroundImages[i]
+      if (!bgImage.visible || bgImage.locked) continue
+
+      const isInside = canvasX >= bgImage.x && 
+                      canvasX <= bgImage.x + bgImage.width &&
+                      canvasY >= bgImage.y && 
+                      canvasY <= bgImage.y + bgImage.height
+
+      if (isInside) {
+        if (e.type === 'mousedown') {
+          onSelectBackgroundImage?.(bgImage.id)
+          setIsDraggingBackground(true)
+          setDragStartPos({ x: canvasX - bgImage.x, y: canvasY - bgImage.y })
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  // Handle mouse events for background images
+  const handleCanvasMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
+    if (handleBackgroundImageInteraction(e)) {
+      e.preventDefault()
+      return
+    }
+    onMouseDown(e)
+  }
+
+  const handleCanvasMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
+    if (isDraggingBackground && selectedBackgroundImageId && dragStartPos && onUpdateBackgroundImage) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const rect = canvas.getBoundingClientRect()
+      const canvasX = (e.clientX - rect.left - panOffset.x) / zoom
+      const canvasY = (e.clientY - rect.top - panOffset.y) / zoom
+
+      onUpdateBackgroundImage(selectedBackgroundImageId, {
+        x: canvasX - dragStartPos.x,
+        y: canvasY - dragStartPos.y
+      })
+      return
+    }
+    onMouseMove(e)
+  }
+
+  const handleCanvasMouseUp = (e: MouseEvent<HTMLCanvasElement>) => {
+    if (isDraggingBackground) {
+      setIsDraggingBackground(false)
+      setDragStartPos(null)
+      return
+    }
+    onMouseUp(e)
+  }
 
   // Calculate road name position for inline editing
   const getRoadNamePosition = (road: Road) => {
@@ -181,6 +290,63 @@ export default function RoadCanvas({
   const handlePolygonNameCancel = () => {
     setEditingPolygonName(null)
     setTempPolygonName("")
+  }
+
+  const drawBackgroundImages = (ctx: CanvasRenderingContext2D) => {
+    if (!showBackgroundLayer) return
+
+    backgroundImages.forEach((bgImage) => {
+      if (!bgImage.visible) return
+
+      const img = loadedImages.get(bgImage.id)
+      if (!img) return
+
+      ctx.save()
+      
+      // Set opacity
+      ctx.globalAlpha = bgImage.opacity
+
+      // Apply transformations
+      const centerX = bgImage.x + bgImage.width / 2
+      const centerY = bgImage.y + bgImage.height / 2
+      
+      ctx.translate(centerX, centerY)
+      ctx.rotate((bgImage.rotation * Math.PI) / 180)
+      ctx.translate(-bgImage.width / 2, -bgImage.height / 2)
+
+      // Draw the image
+      ctx.drawImage(img, 0, 0, bgImage.width, bgImage.height)
+
+      // Draw selection outline if selected
+      if (bgImage.id === selectedBackgroundImageId && drawingMode === "select") {
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = "#3b82f6"
+        ctx.lineWidth = 2 / zoom
+        ctx.setLineDash([5 / zoom, 5 / zoom])
+        ctx.strokeRect(0, 0, bgImage.width, bgImage.height)
+        ctx.setLineDash([])
+
+        // Draw resize handles
+        const handleSize = 8 / zoom
+        ctx.fillStyle = "#3b82f6"
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 1 / zoom
+        
+        const handles = [
+          { x: 0, y: 0 }, // top-left
+          { x: bgImage.width, y: 0 }, // top-right
+          { x: bgImage.width, y: bgImage.height }, // bottom-right
+          { x: 0, y: bgImage.height }, // bottom-left
+        ]
+
+        handles.forEach(handle => {
+          ctx.fillRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize)
+          ctx.strokeRect(handle.x - handleSize/2, handle.y - handleSize/2, handleSize, handleSize)
+        })
+      }
+
+      ctx.restore()
+    })
   }
 
   const drawEditableControlPoints = (ctx: CanvasRenderingContext2D, selectedNode: Node | null, allRoads: Road[]) => {
@@ -508,7 +674,10 @@ export default function RoadCanvas({
 
     drawGrid(ctx, canvas.width, canvas.height)
     
-    // Draw polygons first (behind roads)
+    // Draw background images first (behind everything)
+    drawBackgroundImages(ctx)
+    
+    // Draw polygons next (behind roads)
     if (showPolygons) {
       polygons.forEach((polygon) => drawPolygon(ctx, polygon, polygon.id === selectedPolygonId))
     }
@@ -537,6 +706,10 @@ export default function RoadCanvas({
     nodes,
     roads,
     polygons,
+    backgroundImages,
+    showBackgroundLayer,
+    selectedBackgroundImageId,
+    loadedImages,
     buildSession,
     polygonSession,
     selectedRoadId,
@@ -786,7 +959,10 @@ export default function RoadCanvas({
 
   const getCursorClass = () => {
     if (drawingMode === "pan") return "cursor-grab"
-    if (drawingMode === "select") return "cursor-pointer"
+    if (drawingMode === "select") {
+      if (isDraggingBackground) return "cursor-grabbing"
+      return "cursor-pointer"
+    }
     if (drawingMode === "nodes") return "cursor-crosshair"
     if (drawingMode === "connect") return "cursor-pointer"
     if (drawingMode === "disconnect") return "cursor-pointer"
@@ -821,6 +997,9 @@ export default function RoadCanvas({
     if (drawingMode === "select" && selectedPolygonId) {
       return " (Drag polygon or points to edit)"
     }
+    if (drawingMode === "select" && selectedBackgroundImageId) {
+      return " (Drag to move background image)"
+    }
     return ""
   }
 
@@ -830,7 +1009,13 @@ export default function RoadCanvas({
 
   return (
     <div ref={containerRef} className="relative flex-1 bg-white">
-      <canvas ref={canvasRef} onMouseDown={onMouseDown} className={`w-full h-full ${getCursorClass()}`} />
+      <canvas 
+        ref={canvasRef} 
+        onMouseDown={handleCanvasMouseDown}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+        className={`w-full h-full ${getCursorClass()}`} 
+      />
 
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-sm text-sm font-medium border">
         Mode: {getModeDisplayName()}{getStatusMessage()}
