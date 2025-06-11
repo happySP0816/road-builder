@@ -1,11 +1,11 @@
 "use client"
 
 import { Toggle } from "@/components/ui/toggle"
-import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon, Edit } from "lucide-react"
+import { MousePointer2, MousePointer, Hand, Link, Unlink, Plus, Hexagon, Edit, Image } from "lucide-react"
 
 interface DrawingToolsProps {
-  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
-  onDrawingModeChange: (mode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon") => void
+  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "add-image"
+  onDrawingModeChange: (mode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "add-image") => void
 }
 
 export default function DrawingTools({ drawingMode, onDrawingModeChange }: DrawingToolsProps) {
@@ -30,14 +30,17 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
             className="flex flex-col items-center gap-1 h-12 text-xs"
           >
             <Plus size={16} />
-            <span>Add Node</span>
+            <span>Node</span>
           </Toggle>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Polygon</h3>
-        <div className="grid grid-cols-1 gap-1">
+          <Toggle
+            pressed={drawingMode === "add-image"}
+            onPressedChange={() => onDrawingModeChange("add-image")}
+            aria-label="Add image mode"
+            className="flex flex-col items-center gap-1 h-12 text-xs"
+          >
+            <Image size={16} />
+            <span>Image</span>
+          </Toggle>
           <Toggle
             pressed={drawingMode === "polygon"}
             onPressedChange={() => onDrawingModeChange("polygon")}
@@ -45,7 +48,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
             className="flex flex-col items-center gap-1 h-12 text-xs"
           >
             <Hexagon size={16} />
-            <span>Draw</span>
+            <span>Polygon</span>
           </Toggle>
         </div>
       </div>
@@ -84,7 +87,7 @@ export default function DrawingTools({ drawingMode, onDrawingModeChange }: Drawi
             className="flex flex-col items-center gap-1 h-12 text-xs"
           >
             <MousePointer size={16} />
-            <span>Select All</span>
+            <span>Select</span>
           </Toggle>
           <Toggle
             pressed={drawingMode === "pan"}

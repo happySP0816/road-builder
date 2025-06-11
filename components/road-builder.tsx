@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type MouseEvent, useEffect, useRef, useCallback } from "react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
 import RoadCanvas from "./road-canvas"
 import StatusBar from "./status-bar"
 import DrawingTools from "./drawing-tools"
@@ -10,6 +10,8 @@ import PolygonSettings from "./polygon-settings"
 import SelectedItemPanel from "./selected-item-panel"
 import SelectedPolygonPanel from "./selected-polygon-panel"
 import ActionsPanel from "./actions-panel"
+import { Input } from "@/components/ui/input"
+import { Magnet, Ruler, Tag, Shapes } from "lucide-react"
 
 // Helper function for distance from point to line segment
 function distToSegmentSquared(p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) {
@@ -80,7 +82,7 @@ export default function RoadBuilder() {
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snapDistance, setSnapDistance] = useState(20)
   const [defaultRoadWidth, setDefaultRoadWidth] = useState(10)
-  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon">("nodes")
+  const [drawingMode, setDrawingMode] = useState<"nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "add-image">("nodes")
   const [showRoadLengths, setShowRoadLengths] = useState(false)
   const [showRoadNames, setShowRoadNames] = useState(true)
   const [showPolygons, setShowPolygons] = useState(true)
@@ -113,6 +115,9 @@ export default function RoadBuilder() {
   
   // Disconnect mode state - two-step selection
   const [selectedRoadForDisconnect, setSelectedRoadForDisconnect] = useState<string | null>(null)
+
+  // Background images state
+  const [backgroundImages, setBackgroundImages] = useState<BackgroundImage[]>([])
 
   const completeBuildSession = useCallback(() => {
     setBuildSession({
@@ -1218,10 +1223,33 @@ export default function RoadBuilder() {
   const totalLength = roads.reduce((sum, road) => sum + calculateRoadLength(road), 0)
   const totalArea = polygons.reduce((sum, polygon) => sum + (polygon.area || 0), 0)
 
+  // Add a new background image
+  const addBackgroundImage = (img: Omit<BackgroundImage, 'id'>) => {
+    setBackgroundImages(prev => [
+      ...prev,
+      { ...img, id: `bgimg-${Date.now()}` }
+    ])
+  }
+
+  // Update a background image (by id)
+  const updateBackgroundImage = (id: string, updates: Partial<BackgroundImage>) => {
+    setBackgroundImages(prev => prev.map(img => img.id === id ? { ...img, ...updates } : img))
+  }
+
+  // Remove a background image (by id)
+  const removeBackgroundImage = (id: string) => {
+    setBackgroundImages(prev => prev.filter(img => img.id !== id))
+  }
+
+  // Toggle visibility of a background image
+  const toggleBackgroundImageVisibility = (id: string) => {
+    setBackgroundImages(prev => prev.map(img => img.id === id ? { ...img, visible: !img.visible } : img))
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Left Sidebar - Drawing Tools Only */}
-      <div className="w-40 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+      <div className="w-32 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <DrawingTools drawingMode={drawingMode} onDrawingModeChange={setDrawingMode} />
           <ActionsPanel onRemoveLastElement={removeLastElement} onClearCanvas={clearCanvas} />
@@ -1276,68 +1304,188 @@ export default function RoadBuilder() {
           onResetZoom={resetZoom}
           onUpdateRoadName={onUpdateRoadName}
           onUpdatePolygonName={onUpdatePolygonName}
+          backgroundImages={backgroundImages}
         />
       </div>
 
       {/* Right Sidebar - Settings and Edit Panels */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
           {/* Always show Display Options */}
           <div className="space-y-6">
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Display Options</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Auto Snapping</span>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={snapEnabled}
-                      onChange={(e) => setSnapEnabled(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className="text-xs">Snap</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Show Lengths</span>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={showRoadLengths}
-                      onChange={(e) => setShowRoadLengths(e.target.checked)}
-                      className="mr-2"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Show Names</span>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={showRoadNames}
-                      onChange={(e) => setShowRoadNames(e.target.checked)}
-                      className="mr-2"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Show Polygons</span>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={showPolygons}
-                      onChange={(e) => setShowPolygons(e.target.checked)}
-                      className="mr-2"
-                    />
-                  </div>
-                </div>
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+                <span>Display Options</span>
+              </h3>
+              <div className="flex gap-2">
+                {/* Auto Snapping */}
+                <button
+                  className={`flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs ${snapEnabled ? 'bg-blue-100 border-blue-400 text-blue-700 shadow' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                  title="Auto Snapping"
+                  onClick={() => setSnapEnabled(v => !v)}
+                  type="button"
+                >
+                  <Magnet className="w-6 h-6 mb-1" />
+                  Snap
+                </button>
+                {/* Show Lengths */}
+                <button
+                  className={`flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs ${showRoadLengths ? 'bg-blue-100 border-blue-400 text-blue-700 shadow' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                  title="Show Lengths"
+                  onClick={() => setShowRoadLengths(v => !v)}
+                  type="button"
+                >
+                  <Ruler className="w-6 h-6 mb-1" />
+                  Lengths
+                </button>
+                {/* Show Names */}
+                <button
+                  className={`flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs ${showRoadNames ? 'bg-blue-100 border-blue-400 text-blue-700 shadow' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                  title="Show Names"
+                  onClick={() => setShowRoadNames(v => !v)}
+                  type="button"
+                >
+                  <Tag className="w-6 h-6 mb-1" />
+                  Names
+                </button>
+                {/* Show Polygons */}
+                <button
+                  className={`flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs ${showPolygons ? 'bg-blue-100 border-blue-400 text-blue-700 shadow' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                  title="Show Polygons"
+                  onClick={() => setShowPolygons(v => !v)}
+                  type="button"
+                >
+                  <Shapes className="w-6 h-6 mb-1" />
+                  Polygons
+                </button>
               </div>
             </div>
           </div>
+
+          {/* Background Images Section */}
+          {drawingMode === "add-image" && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Background Images</h3>
+              {/* Upload new background image */}
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = (ev) => {
+                    const img = new window.Image()
+                    img.onload = () => {
+                      // Place image at bottom-center of the current visible canvas
+                      const margin = 20
+                      const canvas = document.querySelector("canvas") as HTMLCanvasElement | null
+                      let x = 0, y = 0
+                      if (canvas) {
+                        const canvasWidth = canvas.width
+                        const canvasHeight = canvas.height
+                        // Adjust for panOffset and zoom
+                        x = ((canvasWidth - img.width) / 2 - panOffset.x) / zoom
+                        y = (canvasHeight - img.height - margin - panOffset.y) / zoom
+                      }
+                      addBackgroundImage({
+                        src: ev.target?.result as string,
+                        x,
+                        y,
+                        scale: 1,
+                        width: img.width,
+                        height: img.height,
+                        opacity: 1,
+                        visible: true,
+                        name: file.name,
+                      })
+                    }
+                    img.src = ev.target?.result as string
+                  }
+                  reader.readAsDataURL(file)
+                  // Reset input value so same file can be uploaded again
+                  e.target.value = ""
+                }}
+              />
+              {/* List of background images */}
+              <div className="space-y-2">
+                {backgroundImages.length === 0 && (
+                  <div className="text-xs text-gray-400">No background images</div>
+                )}
+                {backgroundImages.map((img) => (
+                  <div key={img.id} className="border rounded p-2 flex flex-col gap-2 bg-gray-50">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium">{img.name || 'Image'}</span>
+                      <button
+                        className="text-red-500 hover:text-red-700 text-xs ml-2"
+                        title="Remove"
+                        onClick={() => removeBackgroundImage(img.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="px-1 text-xs border rounded hover:bg-gray-200"
+                        title="Move Left"
+                        onClick={() => updateBackgroundImage(img.id, { x: img.x - 10 })}
+                      >←</button>
+                      <button
+                        className="px-1 text-xs border rounded hover:bg-gray-200"
+                        title="Move Right"
+                        onClick={() => updateBackgroundImage(img.id, { x: img.x + 10 })}
+                      >→</button>
+                      <button
+                        className="px-1 text-xs border rounded hover:bg-gray-200"
+                        title="Move Up"
+                        onClick={() => updateBackgroundImage(img.id, { y: img.y - 10 })}
+                      >↑</button>
+                      <button
+                        className="px-1 text-xs border rounded hover:bg-gray-200"
+                        title="Move Down"
+                        onClick={() => updateBackgroundImage(img.id, { y: img.y + 10 })}
+                      >↓</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">Scale</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={5}
+                        step={0.01}
+                        value={img.scale}
+                        onChange={e => updateBackgroundImage(img.id, { scale: parseFloat(e.target.value) })}
+                        className="flex-1"
+                      />
+                      <span className="text-xs w-8 text-right">{img.scale.toFixed(2)}x</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">Opacity</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={img.opacity}
+                        onChange={e => updateBackgroundImage(img.id, { opacity: parseFloat(e.target.value) })}
+                        className="flex-1"
+                      />
+                      <span className="text-xs w-8 text-right">{Math.round(img.opacity * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">Visible</span>
+                      <input
+                        type="checkbox"
+                        checked={img.visible}
+                        onChange={() => toggleBackgroundImageVisibility(img.id)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Show Road Settings only when Build tool is selected */}
           {drawingMode === "nodes" && (
@@ -1346,16 +1494,10 @@ export default function RoadBuilder() {
               scaleMetersPerPixel={scaleMetersPerPixel}
               snapDistance={snapDistance}
               curvedRoads={false}
-              snapEnabled={snapEnabled}
-              showRoadLengths={showRoadLengths}
-              showRoadNames={showRoadNames}
               onDefaultRoadWidthChange={setDefaultRoadWidth}
               onScaleChange={setScaleMetersPerPixel}
               onSnapDistanceChange={setSnapDistance}
               onCurvedRoadsChange={() => {}}
-              onSnapEnabledChange={setSnapEnabled}
-              onShowRoadLengthsChange={setShowRoadLengths}
-              onShowRoadNamesChange={setShowRoadNames}
             />
           )}
 
@@ -1365,11 +1507,9 @@ export default function RoadBuilder() {
               fillColor={polygonSession.fillColor}
               strokeColor={polygonSession.strokeColor}
               opacity={polygonSession.opacity}
-              showPolygons={showPolygons}
               onFillColorChange={(color) => setPolygonSession(prev => ({ ...prev, fillColor: color }))}
               onStrokeColorChange={(color) => setPolygonSession(prev => ({ ...prev, strokeColor: color }))}
               onOpacityChange={(opacity) => setPolygonSession(prev => ({ ...prev, opacity }))}
-              onShowPolygonsChange={setShowPolygons}
             />
           )}
 

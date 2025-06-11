@@ -4,7 +4,7 @@ import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
@@ -12,7 +12,7 @@ interface RoadCanvasProps {
   polygons: Polygon[]
   buildSession: BuildSession
   polygonSession: PolygonSession
-  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon"
+  drawingMode: "nodes" | "pan" | "select" | "connect" | "disconnect" | "add-node" | "polygon" | "add-image"
   snapEnabled: boolean
   snapDistance: number
   defaultRoadWidth: number
@@ -43,6 +43,7 @@ interface RoadCanvasProps {
   onAddRoad?: (road: Omit<Road, "id">) => void
   onUpdateRoadName?: (roadId: string, newName: string) => void
   onUpdatePolygonName?: (polygonId: string, newName: string) => void
+  backgroundImages?: BackgroundImage[]
 }
 
 export default function RoadCanvas({
@@ -80,6 +81,7 @@ export default function RoadCanvas({
   onResetZoom,
   onUpdateRoadName,
   onUpdatePolygonName,
+  backgroundImages = [],
 }: RoadCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -87,6 +89,7 @@ export default function RoadCanvas({
   const [tempRoadName, setTempRoadName] = useState("")
   const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
   const [tempPolygonName, setTempPolygonName] = useState("")
+  const imageCache = useRef<{ [src: string]: HTMLImageElement }>({})
 
   useEffect(() => {
     const handleResize = () => {
@@ -99,6 +102,25 @@ export default function RoadCanvas({
     handleResize()
     return () => window.removeEventListener("resize", handleResize)
   }, [])
+
+  // Preload images when backgroundImages changes
+  useEffect(() => {
+    backgroundImages?.forEach((img) => {
+      if (!imageCache.current[img.src]) {
+        const image = new window.Image()
+        image.src = img.src
+        image.onload = () => {
+          imageCache.current[img.src] = image
+          // Force redraw when image loads
+          if (canvasRef.current) {
+            const ctx = canvasRef.current.getContext("2d")
+            if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+          }
+        }
+        imageCache.current[img.src] = image
+      }
+    })
+  }, [backgroundImages])
 
   // Calculate road name position for inline editing
   const getRoadNamePosition = (road: Road) => {
@@ -506,6 +528,28 @@ export default function RoadCanvas({
     ctx.translate(panOffset.x, panOffset.y)
     ctx.scale(zoom, zoom)
 
+    // --- Z-INDEX: BACKGROUND IMAGES (-100) ---
+    ctx.save()
+    if (backgroundImages && backgroundImages.length > 0) {
+      backgroundImages.forEach(img => {
+        if (!img.visible) return
+        const image = imageCache.current[img.src]
+        if (image && image.complete) {
+          ctx.save()
+          ctx.globalAlpha = img.opacity
+          ctx.setTransform(1, 0, 0, 1, 0, 0)
+          ctx.translate(panOffset.x, panOffset.y)
+          ctx.scale(zoom, zoom)
+          ctx.translate(img.x, img.y)
+          ctx.scale(img.scale, img.scale)
+          ctx.drawImage(image, 0, 0, img.width, img.height)
+          ctx.restore()
+        }
+      })
+    }
+    ctx.restore()
+
+    // --- Z-INDEX: ALL OTHER ELEMENTS (100) ---
     drawGrid(ctx, canvas.width, canvas.height)
     
     // Draw polygons first (behind roads)
@@ -556,6 +600,7 @@ export default function RoadCanvas({
     snapDistance,
     isActivelyDrawingCurve,
     editingPolygonName,
+    backgroundImages,
   ])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -792,6 +837,7 @@ export default function RoadCanvas({
     if (drawingMode === "disconnect") return "cursor-pointer"
     if (drawingMode === "add-node") return "cursor-crosshair"
     if (drawingMode === "polygon") return "cursor-crosshair"
+    if (drawingMode === "add-image") return "cursor-crosshair"
     return "cursor-default"
   }
 
@@ -804,6 +850,7 @@ export default function RoadCanvas({
       case "disconnect": return "Disconnect"
       case "add-node": return "Add Node"
       case "polygon": return "Draw Polygon"
+      case "add-image": return "Add Image"
       default: return drawingMode
     }
   }
@@ -925,13 +972,13 @@ export default function RoadCanvas({
       )}
 
       <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <Button variant="outline" size="icon" onClick={onZoomIn}>
+        <Button className="w-full" variant="outline" size="icon" onClick={onZoomIn}>
           <ZoomIn className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="icon" onClick={onZoomOut}>
+        <Button className="w-full" variant="outline" size="icon" onClick={onZoomOut}>
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" onClick={onResetZoom} className="text-xs px-2">
+        <Button className="w-full text-xs px-2" variant="outline" size="sm" onClick={onResetZoom}>
           {(zoom * 100).toFixed(0)}%
         </Button>
       </div>

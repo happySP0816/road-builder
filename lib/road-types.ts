@@ -66,3 +66,16 @@ export interface NodePoint {
   cp2?: { x: number; y: number }
   cp1?: { x: number; y: number }
 }
+
+export interface BackgroundImage {
+  id: string;
+  src: string; // Data URL or image URL
+  x: number; // Top-left x in canvas coordinates
+  y: number; // Top-left y in canvas coordinates
+  scale: number; // Uniform scale (1 = original size)
+  width: number; // Natural width (for display)
+  height: number; // Natural height (for display)
+  opacity: number; // 0-1
+  visible: boolean;
+  name?: string;
+}
