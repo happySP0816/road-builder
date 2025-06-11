@@ -40,21 +40,6 @@ export interface Polygon {
   area?: number // Calculated area in square meters
 }
 
-export interface BackgroundImage {
-  id: string
-  name: string
-  url: string
-  x: number
-  y: number
-  width: number
-  height: number
-  originalWidth: number
-  originalHeight: number
-  opacity: number
-  rotation: number
-  visible: boolean
-}
-
 export interface BuildSession {
   nodes: NodePoint[]
   isActive: boolean

@@ -1247,7 +1247,7 @@ export default function RoadBuilder() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Left Sidebar - Drawing Tools Only */}
       <div className="w-32 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 space-y-6">

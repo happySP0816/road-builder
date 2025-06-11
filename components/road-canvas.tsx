@@ -90,6 +90,7 @@ export default function RoadCanvas({
   const [editingPolygonName, setEditingPolygonName] = useState<string | null>(null)
   const [tempPolygonName, setTempPolygonName] = useState("")
   const imageCache = useRef<{ [src: string]: HTMLImageElement }>({})
+  const [redrawFlag, setRedrawFlag] = useState(0)
 
   useEffect(() => {
     const handleResize = () => {
@@ -111,11 +112,7 @@ export default function RoadCanvas({
         image.src = img.src
         image.onload = () => {
           imageCache.current[img.src] = image
-          // Force redraw when image loads
-          if (canvasRef.current) {
-            const ctx = canvasRef.current.getContext("2d")
-            if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-          }
+          setRedrawFlag(flag => flag + 1) // Force redraw when image loads
         }
         imageCache.current[img.src] = image
       }
@@ -601,6 +598,7 @@ export default function RoadCanvas({
     isActivelyDrawingCurve,
     editingPolygonName,
     backgroundImages,
+    redrawFlag,
   ])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
