@@ -54,6 +54,34 @@ function isPointInPolygon(point: { x: number; y: number }, polygon: { x: number;
   return inside
 }
 
+// Utility: Split cubic bezier at t, return two sets of control points
+function splitCubicBezier(
+  p0: { x: number; y: number },
+  c1: { x: number; y: number },
+  c2: { x: number; y: number },
+  p3: { x: number; y: number },
+  t: number
+) {
+  // de Casteljau's algorithm
+  const lerp = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  })
+  const p01 = lerp(p0, c1, t)
+  const p12 = lerp(c1, c2, t)
+  const p23 = lerp(c2, p3, t)
+  const p012 = lerp(p01, p12, t)
+  const p123 = lerp(p12, p23, t)
+  const p0123 = lerp(p012, p123, t)
+  // First segment: p0, p01, p012, p0123
+  // Second segment: p0123, p123, p23, p3
+  return {
+    left: [p0, p01, p012, p0123],
+    right: [p0123, p123, p23, p3],
+    splitPoint: p0123,
+  }
+}
+
 export default function RoadBuilder() {
   const [nodes, setNodes] = useState<Node[]>([])
   const [roads, setRoads] = useState<Road[]>([])
@@ -338,7 +366,58 @@ export default function RoadBuilder() {
   const getSnappedPosition = (x: number, y: number, excludeNodeIds: string[] = []) => {
     const nearbyNode = findNearbyNode(x, y, excludeNodeIds)
     if (nearbyNode) {
-      return { x: nearbyNode.x, y: nearbyNode.y, snappedToNodeId: nearbyNode.id }
+      return { x: nearbyNode.x, y: nearbyNode.y, snappedToNodeId: nearbyNode.id, snappedToRoadId: null }
+    }
+    // --- New: Snap to road if close enough ---
+    let closestRoad: Road | null = null
+    let closestPoint: { x: number; y: number } | null = null
+    let minDist = Infinity
+    for (const road of roads) {
+      let candidatePoint: { x: number; y: number } | null = null
+      let dist = Infinity
+      if (road.type === RoadType.STRAIGHT) {
+        // Project point onto segment
+        const v = road.start
+        const w = road.end
+        const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
+        if (l2 === 0) {
+          candidatePoint = { x: v.x, y: v.y }
+          dist = Math.sqrt((x - v.x) ** 2 + (y - v.y) ** 2)
+        } else {
+          let t = ((x - v.x) * (w.x - v.x) + (y - v.y) * (w.y - v.y)) / l2
+          t = Math.max(0, Math.min(1, t))
+          candidatePoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
+          dist = Math.sqrt((x - candidatePoint.x) ** 2 + (y - candidatePoint.y) ** 2)
+        }
+      } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+        // Sample points along the bezier curve
+        const samples = 30
+        for (let i = 0; i <= samples; i++) {
+          const t = i / samples
+          const mt = 1 - t
+          const bx = mt * mt * mt * road.start.x +
+            3 * mt * mt * t * road.controlPoints[0].x +
+            3 * mt * t * t * road.controlPoints[1].x +
+            t * t * t * road.end.x
+          const by = mt * mt * mt * road.start.y +
+            3 * mt * mt * t * road.controlPoints[0].y +
+            3 * mt * t * t * road.controlPoints[1].y +
+            t * t * t * road.end.y
+          const d = Math.sqrt((x - bx) ** 2 + (y - by) ** 2)
+          if (d < dist) {
+            dist = d
+            candidatePoint = { x: bx, y: by }
+          }
+        }
+      }
+      if (candidatePoint && dist < minDist) {
+        minDist = dist
+        closestRoad = road
+        closestPoint = candidatePoint
+      }
+    }
+    if (closestRoad && minDist <= snapDistance / zoom) {
+      return { x: closestPoint!.x, y: closestPoint!.y, snappedToNodeId: null, snappedToRoadId: closestRoad.id }
     }
     if (snapEnabled) {
       const gridSize = snapDistance
@@ -346,9 +425,10 @@ export default function RoadBuilder() {
         x: Math.round(x / gridSize) * gridSize,
         y: Math.round(y / gridSize) * gridSize,
         snappedToNodeId: null,
+        snappedToRoadId: null,
       }
     }
-    return { x, y, snappedToNodeId: null }
+    return { x, y, snappedToNodeId: null, snappedToRoadId: null }
   }
 
   const createRoadBetweenNodes = (startNodeId: string, endNodeId: string) => {
@@ -622,6 +702,164 @@ export default function RoadBuilder() {
     if (drawingMode === "nodes") {
       const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
       const currentSession = buildSessionRef.current
+
+      // --- New: If snapping to a road, split the road and insert a node ---
+      if (snappedPos.snappedToRoadId) {
+        const roadToSplit = roads.find(r => r.id === snappedPos.snappedToRoadId)
+        if (roadToSplit) {
+          const newNodeId = `node-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+          const newNode: Node = {
+            id: newNodeId,
+            x: snappedPos.x,
+            y: snappedPos.y,
+            connectedRoadIds: [],
+            cp1: { x: snappedPos.x, y: snappedPos.y },
+            cp2: { x: snappedPos.x, y: snappedPos.y },
+          }
+          setRoads(prev => prev.filter(r => r.id !== roadToSplit.id))
+
+          // --- Improved: If bezier, split using de Casteljau ---
+          if (roadToSplit.type === RoadType.BEZIER && roadToSplit.controlPoints) {
+            // Find closest t on bezier to snappedPos
+            let minDist = Infinity
+            let bestT = 0.5
+            for (let i = 0; i <= 100; i++) {
+              const t = i / 100
+              const mt = 1 - t
+              const bx = mt * mt * mt * roadToSplit.start.x +
+                3 * mt * mt * t * roadToSplit.controlPoints[0].x +
+                3 * mt * t * t * roadToSplit.controlPoints[1].x +
+                t * t * t * roadToSplit.end.x
+              const by = mt * mt * mt * roadToSplit.start.y +
+                3 * mt * mt * t * roadToSplit.controlPoints[0].y +
+                3 * mt * t * t * roadToSplit.controlPoints[1].y +
+                t * t * t * roadToSplit.end.y
+              const d = Math.sqrt((snappedPos.x - bx) ** 2 + (snappedPos.y - by) ** 2)
+              if (d < minDist) {
+                minDist = d
+                bestT = t
+              }
+            }
+            // Split bezier at bestT
+            const split = splitCubicBezier(
+              roadToSplit.start,
+              roadToSplit.controlPoints[0],
+              roadToSplit.controlPoints[1],
+              roadToSplit.end,
+              bestT
+            )
+            // left: [start, c1, c2, split]
+            // right: [split, c3, c4, end]
+            const roadId1 = `road-${Date.now()}-a`
+            const roadId2 = `road-${Date.now()}-b`
+            const newRoad1: Road = {
+              id: roadId1,
+              start: { ...split.left[0] },
+              end: { ...split.left[3] },
+              startNodeId: roadToSplit.startNodeId,
+              endNodeId: newNodeId,
+              type: RoadType.BEZIER,
+              width: roadToSplit.width,
+              name: roadToSplit.name ? roadToSplit.name + " (1)" : "",
+              controlPoints: [split.left[1], split.left[2]],
+            }
+            const newRoad2: Road = {
+              id: roadId2,
+              start: { ...split.right[0] },
+              end: { ...split.right[3] },
+              startNodeId: newNodeId,
+              endNodeId: roadToSplit.endNodeId,
+              type: RoadType.BEZIER,
+              width: roadToSplit.width,
+              name: roadToSplit.name ? roadToSplit.name + " (2)" : "",
+              controlPoints: [split.right[1], split.right[2]],
+            }
+            setRoads(prev => [...prev, newRoad1, newRoad2])
+            setNodes(prev => prev.map(n => {
+              if (n.id === roadToSplit.startNodeId) {
+                return { ...n, connectedRoadIds: [...n.connectedRoadIds.filter(id => id !== roadToSplit.id), roadId1] }
+              }
+              if (n.id === roadToSplit.endNodeId) {
+                return { ...n, connectedRoadIds: [...n.connectedRoadIds.filter(id => id !== roadToSplit.id), roadId2] }
+              }
+              return n
+            }))
+            setNodes(prev => [...prev, { ...newNode, connectedRoadIds: [roadId1, roadId2] }])
+            if (currentSession.isActive) {
+              setBuildSession(prev => ({
+                ...prev,
+                nodes: [...prev.nodes, { ...newNode }],
+                roadType: RoadType.STRAIGHT,
+              }))
+              setIsDraggingNewPointHandle(true)
+            } else {
+              setBuildSession({
+                nodes: [{ ...newNode }],
+                isActive: true,
+                roadType: RoadType.STRAIGHT,
+                roadWidth: defaultRoadWidth,
+                currentSegmentStartNodeIndex: 0,
+              })
+              setIsDraggingNewPointHandle(true)
+            }
+            return
+          }
+          // --- End improved bezier split ---
+
+          // Default: straight or other types
+          const roadId1 = `road-${Date.now()}-a`
+          const roadId2 = `road-${Date.now()}-b`
+          const newRoad1: Road = {
+            id: roadId1,
+            start: { ...roadToSplit.start },
+            end: { x: snappedPos.x, y: snappedPos.y },
+            startNodeId: roadToSplit.startNodeId,
+            endNodeId: newNodeId,
+            type: roadToSplit.type,
+            width: roadToSplit.width,
+            name: roadToSplit.name ? roadToSplit.name + " (1)" : "",
+          }
+          const newRoad2: Road = {
+            id: roadId2,
+            start: { x: snappedPos.x, y: snappedPos.y },
+            end: { ...roadToSplit.end },
+            startNodeId: newNodeId,
+            endNodeId: roadToSplit.endNodeId,
+            type: roadToSplit.type,
+            width: roadToSplit.width,
+            name: roadToSplit.name ? roadToSplit.name + " (2)" : "",
+          }
+          setRoads(prev => [...prev, newRoad1, newRoad2])
+          setNodes(prev => prev.map(n => {
+            if (n.id === roadToSplit.startNodeId) {
+              return { ...n, connectedRoadIds: [...n.connectedRoadIds.filter(id => id !== roadToSplit.id), roadId1] }
+            }
+            if (n.id === roadToSplit.endNodeId) {
+              return { ...n, connectedRoadIds: [...n.connectedRoadIds.filter(id => id !== roadToSplit.id), roadId2] }
+            }
+            return n
+          }))
+          setNodes(prev => [...prev, { ...newNode, connectedRoadIds: [roadId1, roadId2] }])
+          if (currentSession.isActive) {
+            setBuildSession(prev => ({
+              ...prev,
+              nodes: [...prev.nodes, { ...newNode }],
+              roadType: RoadType.STRAIGHT,
+            }))
+            setIsDraggingNewPointHandle(true)
+          } else {
+            setBuildSession({
+              nodes: [{ ...newNode }],
+              isActive: true,
+              roadType: RoadType.STRAIGHT,
+              roadWidth: defaultRoadWidth,
+              currentSegmentStartNodeIndex: 0,
+            })
+            setIsDraggingNewPointHandle(true)
+          }
+          return
+        }
+      }
 
       if (currentSession.isActive) {
         const firstNodeInSession = currentSession.nodes[0]

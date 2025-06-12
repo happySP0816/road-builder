@@ -10,10 +10,8 @@ export interface Node {
   x: number
   y: number
   connectedRoadIds: string[]
-  // For bezier: cp2 is the control point leading out of this node
-  // cp1 of the *next* node will be the control point leading into it
-  cp2?: { x: number; y: number } // Control point for the curve segment starting from this node
-  cp1?: { x: number; y: number } // Control point for the curve segment ending at this node (used during drawing)
+  // For each connected road, a control point (for straight roads, this is the node position)
+  controlPoints: { x: number; y: number; roadId: string }[]
 }
 
 export interface Road {
@@ -63,8 +61,7 @@ export interface NodePoint {
   x: number
   y: number
   connectedRoadIds?: string[]
-  cp2?: { x: number; y: number }
-  cp1?: { x: number; y: number }
+  controlPoints: { x: number; y: number; roadId: string }[]
 }
 
 export interface BackgroundImage {
