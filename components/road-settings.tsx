@@ -1,6 +1,5 @@
 "use client"
 
-import { Toggle } from "@/components/ui/toggle"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
 import { Ruler, Type } from "lucide-react"
