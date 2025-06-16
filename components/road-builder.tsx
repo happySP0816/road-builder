@@ -147,6 +147,9 @@ export default function RoadBuilder() {
   // Background images state
   const [backgroundImages, setBackgroundImages] = useState<BackgroundImage[]>([])
 
+  // Add error state for polygon vertex placement
+  const [polygonVertexError, setPolygonVertexError] = useState<string | null>(null)
+
   const completeBuildSession = useCallback(() => {
     setBuildSession({
       nodes: [],
@@ -560,12 +563,68 @@ export default function RoadBuilder() {
     }
 
     if (drawingMode === "polygon") {
+      // Helper to offset a point from a base by a given distance in the direction of a target
+      function offsetPoint(base: { x: number; y: number }, target: { x: number; y: number }, distance: number) {
+        const dx = target.x - base.x
+        const dy = target.y - base.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len === 0) return { x: base.x + distance, y: base.y } // Arbitrary direction if same point
+        return {
+          x: base.x + (dx / len) * distance,
+          y: base.y + (dy / len) * distance,
+        }
+      }
+
       if (!polygonSession.isActive) {
         // Start new polygon
+        let nodeAt = findNearbyNode(worldCoords.x, worldCoords.y)
+        let roadAt = findRoadAtPosition(worldCoords)
+        let placePoint = worldCoords
+        if (nodeAt) {
+          // Offset from node center
+          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth)
+        } else if (roadAt) {
+          // Project click onto road, then offset
+          let closestPoint = null
+          if (roadAt.type === RoadType.STRAIGHT) {
+            // Project onto segment
+            const v = roadAt.start
+            const w = roadAt.end
+            const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
+            let t = l2 === 0 ? 0 : ((worldCoords.x - v.x) * (w.x - v.x) + (worldCoords.y - v.y) * (w.y - v.y)) / l2
+            t = Math.max(0, Math.min(1, t))
+            closestPoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
+          } else if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
+            // Find closest point on bezier
+            let minDist = Infinity
+            let best = roadAt.start
+            for (let i = 0; i <= 100; i++) {
+              const t = i / 100
+              const mt = 1 - t
+              const bx = mt * mt * mt * roadAt.start.x +
+                3 * mt * mt * t * roadAt.controlPoints[0].x +
+                3 * mt * t * t * roadAt.controlPoints[1].x +
+                t * t * t * roadAt.end.x
+              const by = mt * mt * mt * roadAt.start.y +
+                3 * mt * mt * t * roadAt.controlPoints[0].y +
+                3 * mt * t * t * roadAt.controlPoints[1].y +
+                t * t * t * roadAt.end.y
+              const d = Math.sqrt((worldCoords.x - bx) ** 2 + (worldCoords.y - by) ** 2)
+              if (d < minDist) {
+                minDist = d
+                best = { x: bx, y: by }
+              }
+            }
+            closestPoint = best
+          }
+          if (closestPoint) {
+            placePoint = offsetPoint(closestPoint, worldCoords, roadAt.width)
+          }
+        }
         setPolygonSession(prev => ({
           ...prev,
           isActive: true,
-          points: [worldCoords],
+          points: [placePoint],
           roadIds: [],
         }))
       } else {
@@ -574,15 +633,53 @@ export default function RoadBuilder() {
         const distanceToFirst = Math.sqrt(
           (worldCoords.x - firstPoint.x) ** 2 + (worldCoords.y - firstPoint.y) ** 2
         )
-        
+        let nodeAt = findNearbyNode(worldCoords.x, worldCoords.y)
+        let roadAt = findRoadAtPosition(worldCoords)
+        let placePoint = worldCoords
+        if (nodeAt) {
+          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth)
+        } else if (roadAt) {
+          let closestPoint = null
+          if (roadAt.type === RoadType.STRAIGHT) {
+            const v = roadAt.start
+            const w = roadAt.end
+            const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
+            let t = l2 === 0 ? 0 : ((worldCoords.x - v.x) * (w.x - v.x) + (worldCoords.y - v.y) * (w.y - v.y)) / l2
+            t = Math.max(0, Math.min(1, t))
+            closestPoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
+          } else if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
+            let minDist = Infinity
+            let best = roadAt.start
+            for (let i = 0; i <= 100; i++) {
+              const t = i / 100
+              const mt = 1 - t
+              const bx = mt * mt * mt * roadAt.start.x +
+                3 * mt * mt * t * roadAt.controlPoints[0].x +
+                3 * mt * t * t * roadAt.controlPoints[1].x +
+                t * t * t * roadAt.end.x
+              const by = mt * mt * mt * roadAt.start.y +
+                3 * mt * mt * t * roadAt.controlPoints[0].y +
+                3 * mt * t * t * roadAt.controlPoints[1].y +
+                t * t * t * roadAt.end.y
+              const d = Math.sqrt((worldCoords.x - bx) ** 2 + (worldCoords.y - by) ** 2)
+              if (d < minDist) {
+                minDist = d
+                best = { x: bx, y: by }
+              }
+            }
+            closestPoint = best
+          }
+          if (closestPoint) {
+            placePoint = offsetPoint(closestPoint, worldCoords, roadAt.width)
+          }
+        }
         // If clicking near first point and we have at least 3 points, close polygon
         if (distanceToFirst < snapDistance / zoom && polygonSession.points.length >= 3) {
           completePolygonSession()
         } else {
-          // Add new point
           setPolygonSession(prev => ({
             ...prev,
-            points: [...prev.points, worldCoords],
+            points: [...prev.points, placePoint],
           }))
         }
       }
@@ -1775,6 +1872,11 @@ export default function RoadBuilder() {
           )}
         </div>
       </div>
+      {drawingMode === "polygon" && polygonVertexError && (
+        <div className="text-red-600 text-xs font-semibold p-2 bg-red-50 border border-red-200 rounded mb-2">
+          {polygonVertexError}
+        </div>
+      )}
     </div>
   )
 }
