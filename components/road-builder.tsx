@@ -89,7 +89,7 @@ export default function RoadBuilder() {
   const [buildSession, setBuildSession] = useState<BuildSession>({
     nodes: [],
     isActive: false,
-    roadType: RoadType.STRAIGHT,
+    roadType: RoadType.BEZIER,
     roadWidth: 10,
     isDraggingControlPoint: null,
     currentSegmentStartNodeIndex: null,
@@ -154,7 +154,7 @@ export default function RoadBuilder() {
     setBuildSession({
       nodes: [],
       isActive: false,
-      roadType: RoadType.STRAIGHT,
+      roadType: RoadType.BEZIER,
       roadWidth: defaultRoadWidth,
       currentSegmentStartNodeIndex: null,
       isDraggingControlPoint: null,
@@ -166,7 +166,7 @@ export default function RoadBuilder() {
     setBuildSession({
       nodes: [],
       isActive: false,
-      roadType: RoadType.STRAIGHT,
+      roadType: RoadType.BEZIER,
       roadWidth: defaultRoadWidth,
       currentSegmentStartNodeIndex: null,
       isDraggingControlPoint: null,
@@ -489,7 +489,7 @@ export default function RoadBuilder() {
       end: { x: endNode.x, y: endNode.y },
       startNodeId: startNodeId,
       endNodeId: endNodeId,
-      type: RoadType.STRAIGHT,
+      type: RoadType.BEZIER,
       width: defaultRoadWidth,
       name: "", // Default empty name
     }
@@ -886,14 +886,14 @@ export default function RoadBuilder() {
               setBuildSession(prev => ({
                 ...prev,
                 nodes: [...prev.nodes, { ...newNode }],
-                roadType: RoadType.STRAIGHT,
+                roadType: RoadType.BEZIER,
               }))
               setIsDraggingNewPointHandle(true)
             } else {
               setBuildSession({
                 nodes: [{ ...newNode }],
                 isActive: true,
-                roadType: RoadType.STRAIGHT,
+                roadType: RoadType.BEZIER,
                 roadWidth: defaultRoadWidth,
                 currentSegmentStartNodeIndex: 0,
               })
@@ -941,14 +941,14 @@ export default function RoadBuilder() {
             setBuildSession(prev => ({
               ...prev,
               nodes: [...prev.nodes, { ...newNode }],
-              roadType: RoadType.STRAIGHT,
+              roadType: RoadType.BEZIER,
             }))
             setIsDraggingNewPointHandle(true)
           } else {
             setBuildSession({
               nodes: [{ ...newNode }],
               isActive: true,
-              roadType: RoadType.STRAIGHT,
+              roadType: RoadType.BEZIER,
               roadWidth: defaultRoadWidth,
               currentSegmentStartNodeIndex: 0,
             })
@@ -997,7 +997,7 @@ export default function RoadBuilder() {
               end: { x: firstNodeInSession.x, y: firstNodeInSession.y },
               startNodeId: lastPointInSession.id,
               endNodeId: firstNodeInSession.id,
-              type: RoadType.STRAIGHT,
+              type: RoadType.BEZIER,
               width: currentSession.roadWidth,
               name: "", // Default empty name
             }
@@ -1034,7 +1034,7 @@ export default function RoadBuilder() {
         setBuildSession((prev) => ({
           ...prev,
           nodes: [...prev.nodes, newPoint],
-          roadType: RoadType.STRAIGHT,
+          roadType: RoadType.BEZIER,
         }))
         setIsDraggingNewPointHandle(true)
       } else {
@@ -1074,7 +1074,7 @@ export default function RoadBuilder() {
         setBuildSession({
           nodes: [startNodePoint],
           isActive: true,
-          roadType: RoadType.STRAIGHT,
+          roadType: RoadType.BEZIER,
           roadWidth: defaultRoadWidth,
           currentSegmentStartNodeIndex: 0,
         })
@@ -1330,7 +1330,7 @@ export default function RoadBuilder() {
             ...prevSession,
             nodes: updatedSessionNodes,
             currentSegmentStartNodeIndex: updatedSessionNodes.length - 1,
-            roadType: RoadType.STRAIGHT,
+            roadType: RoadType.BEZIER,
             isDraggingControlPoint: null,
           }
         })
