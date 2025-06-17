@@ -12,6 +12,8 @@ export interface Node {
   connectedRoadIds: string[]
   // For each connected road, a control point (for straight roads, this is the node position)
   controlPoints: { x: number; y: number; roadId: string }[]
+  cp1?: { x: number; y: number }
+  cp2?: { x: number; y: number }
 }
 
 export interface Road {
@@ -62,6 +64,8 @@ export interface NodePoint {
   y: number
   connectedRoadIds?: string[]
   controlPoints: { x: number; y: number; roadId: string }[]
+  cp1?: { x: number; y: number }
+  cp2?: { x: number; y: number }
 }
 
 export interface BackgroundImage {

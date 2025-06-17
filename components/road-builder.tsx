@@ -1283,7 +1283,7 @@ export default function RoadBuilder() {
             end: { x: lastPoint.x, y: lastPoint.y },
             startNodeId: secondLastPoint.id,
             endNodeId: lastPoint.id,
-            type: RoadType.STRAIGHT,
+            type: RoadType.BEZIER,
             width: currentSession.roadWidth,
             name: "", // Default empty name
             controlPoints: [
