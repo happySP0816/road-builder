@@ -1455,6 +1455,7 @@ export default function RoadBuilder() {
     setNodes([])
     setRoads([])
     setPolygons([])
+    setBackgroundImages([])
     cancelBuildSession()
     cancelPolygonSession()
     setSelectedNodeId(null)
