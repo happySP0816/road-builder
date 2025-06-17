@@ -309,11 +309,7 @@ export default function RoadBuilder() {
       const roadHalfWidth = road.width / 2 / zoom
       const effectiveTolerance = roadHalfWidth + clickTolerance
 
-      if (road.type === RoadType.STRAIGHT) {
-        if (distToSegment(worldCoords, road.start, road.end) < effectiveTolerance) {
-          return road
-        }
-      } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+      if (road.type === RoadType.BEZIER && road.controlPoints) {
         const samples = 20
         let p0 = road.start
         for (let i = 1; i <= samples; i++) {
@@ -378,21 +374,7 @@ export default function RoadBuilder() {
     for (const road of roads) {
       let candidatePoint: { x: number; y: number } | null = null
       let dist = Infinity
-      if (road.type === RoadType.STRAIGHT) {
-        // Project point onto segment
-        const v = road.start
-        const w = road.end
-        const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
-        if (l2 === 0) {
-          candidatePoint = { x: v.x, y: v.y }
-          dist = Math.sqrt((x - v.x) ** 2 + (y - v.y) ** 2)
-        } else {
-          let t = ((x - v.x) * (w.x - v.x) + (y - v.y) * (w.y - v.y)) / l2
-          t = Math.max(0, Math.min(1, t))
-          candidatePoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
-          dist = Math.sqrt((x - candidatePoint.x) ** 2 + (y - candidatePoint.y) ** 2)
-        }
-      } else if (road.type === RoadType.BEZIER && road.controlPoints) {
+      if (road.type === RoadType.BEZIER && road.controlPoints) {
         // Sample points along the bezier curve
         const samples = 30
         for (let i = 0; i <= samples; i++) {
@@ -454,7 +436,7 @@ export default function RoadBuilder() {
         endNodeId: endNodeId,
         type: RoadType.BEZIER,
         width: defaultRoadWidth,
-        name: "", // Default empty name
+        name: "",
         controlPoints: [
           { x: startNode.x + radius, y: startNode.y - radius },
           { x: startNode.x - radius, y: startNode.y + radius }
@@ -492,6 +474,10 @@ export default function RoadBuilder() {
       type: RoadType.BEZIER,
       width: defaultRoadWidth,
       name: "", // Default empty name
+      controlPoints: [
+        { x: startNode.x, y: startNode.y },
+        { x: endNode.x, y: endNode.y }
+      ]
     }
     
     setRoads(prev => [...prev, newRoad])
@@ -586,15 +572,7 @@ export default function RoadBuilder() {
         } else if (roadAt) {
           // Project click onto road, then offset
           let closestPoint = null
-          if (roadAt.type === RoadType.STRAIGHT) {
-            // Project onto segment
-            const v = roadAt.start
-            const w = roadAt.end
-            const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
-            let t = l2 === 0 ? 0 : ((worldCoords.x - v.x) * (w.x - v.x) + (worldCoords.y - v.y) * (w.y - v.y)) / l2
-            t = Math.max(0, Math.min(1, t))
-            closestPoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
-          } else if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
+          if (roadAt.controlPoints) {
             // Find closest point on bezier
             let minDist = Infinity
             let best = roadAt.start
@@ -640,14 +618,7 @@ export default function RoadBuilder() {
           placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth)
         } else if (roadAt) {
           let closestPoint = null
-          if (roadAt.type === RoadType.STRAIGHT) {
-            const v = roadAt.start
-            const w = roadAt.end
-            const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2
-            let t = l2 === 0 ? 0 : ((worldCoords.x - v.x) * (w.x - v.x) + (worldCoords.y - v.y) * (w.y - v.y)) / l2
-            t = Math.max(0, Math.min(1, t))
-            closestPoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }
-          } else if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
+          if (roadAt.controlPoints) {
             let minDist = Infinity
             let best = roadAt.start
             for (let i = 0; i <= 100; i++) {
@@ -810,6 +781,7 @@ export default function RoadBuilder() {
             x: snappedPos.x,
             y: snappedPos.y,
             connectedRoadIds: [],
+            controlPoints: [],
             cp1: { x: snappedPos.x, y: snappedPos.y },
             cp2: { x: snappedPos.x, y: snappedPos.y },
           }
@@ -903,7 +875,7 @@ export default function RoadBuilder() {
           }
           // --- End improved bezier split ---
 
-          // Default: straight or other types
+          // Default: BEZIER or other types
           const roadId1 = `road-${Date.now()}-a`
           const roadId2 = `road-${Date.now()}-b`
           const newRoad1: Road = {
@@ -1027,6 +999,7 @@ export default function RoadBuilder() {
           x: snappedPos.x,
           y: snappedPos.y,
           connectedRoadIds: existingNodeInfo ? existingNodeInfo.connectedRoadIds : [],
+          controlPoints: existingNodeInfo ? existingNodeInfo.controlPoints : [],
           cp1: { x: snappedPos.x, y: snappedPos.y },
           cp2: { x: snappedPos.x, y: snappedPos.y },
         }
@@ -1055,6 +1028,7 @@ export default function RoadBuilder() {
             x: snappedPos.x,
             y: snappedPos.y,
             connectedRoadIds: [],
+            controlPoints: [],
             cp1: { x: snappedPos.x, y: snappedPos.y },
             cp2: { x: snappedPos.x, y: snappedPos.y },
           }
@@ -1065,6 +1039,7 @@ export default function RoadBuilder() {
               x: startNodePoint.x,
               y: startNodePoint.y,
               connectedRoadIds: [],
+              controlPoints: [],
               cp1: startNodePoint.cp1,
               cp2: startNodePoint.cp2,
             },
@@ -1300,12 +1275,12 @@ export default function RoadBuilder() {
               const updatedNode = { ...n, connectedRoadIds: [...new Set([...n.connectedRoadIds, roadId])] }
               if (n.id === secondLastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
                 updatedNode.cp2 = newRoad.controlPoints[0]
-              } else if (n.id === secondLastPoint.id && newRoad.type === RoadType.STRAIGHT) {
+              } else if (n.id === secondLastPoint.id && newRoad.type === RoadType.BEZIER) {
                 updatedNode.cp2 = { x: n.x, y: n.y }
               }
               if (n.id === lastPoint.id && newRoad.type === RoadType.BEZIER && newRoad.controlPoints) {
                 updatedNode.cp1 = newRoad.controlPoints[1]
-              } else if (n.id === lastPoint.id && newRoad.type === RoadType.STRAIGHT) {
+              } else if (n.id === lastPoint.id && newRoad.type === RoadType.BEZIER) {
                 updatedNode.cp1 = { x: n.x, y: n.y }
               }
               return updatedNode
@@ -1493,7 +1468,7 @@ export default function RoadBuilder() {
       setBuildSession((prev) => ({
         ...prev,
         nodes: remainingNodesInSession,
-        roadType: remainingNodesInSession.length > 1 ? prev.roadType : RoadType.STRAIGHT,
+        roadType: remainingNodesInSession.length > 1 ? prev.roadType : RoadType.BEZIER,
       }))
 
       const nodeInMainList = nodes.find((n) => n.id === lastPointRemoved.id)
