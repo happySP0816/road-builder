@@ -526,6 +526,7 @@ export default function RoadBuilder() {
       x: snappedPos.x,
       y: snappedPos.y,
       connectedRoadIds: [],
+      controlPoints: [],
       cp1: { x: snappedPos.x, y: snappedPos.y },
       cp2: { x: snappedPos.x, y: snappedPos.y },
     }
@@ -1218,6 +1219,7 @@ export default function RoadBuilder() {
             connectedRoadIds: secondLastPoint.connectedRoadIds || [],
             cp1: secondLastPoint.cp1,
             cp2: secondLastPoint.cp2,
+            controlPoints: secondLastPoint.controlPoints,
           })
         }
         if (!nodes.find((n) => n.id === lastPoint.id)) {
@@ -1228,6 +1230,7 @@ export default function RoadBuilder() {
             connectedRoadIds: lastPoint.connectedRoadIds || [],
             cp1: lastPoint.cp1,
             cp2: lastPoint.cp2,
+            controlPoints: lastPoint.controlPoints,
           })
         }
         if (newNodesToAdd.length > 0) {
