@@ -150,6 +150,12 @@ export default function RoadBuilder() {
   // Add error state for polygon vertex placement
   const [polygonVertexError, setPolygonVertexError] = useState<string | null>(null)
 
+  // Node dragging state for control points
+  const [nodeDragStartPos, setNodeDragStartPos] = useState<{ x: number; y: number } | null>(null)
+  const [nodeDragControlOffsets, setNodeDragControlOffsets] = useState<{
+    [roadId: string]: { cp0: { x: number; y: number } | null; cp1: { x: number; y: number } | null }
+  }>({})
+
   const completeBuildSession = useCallback(() => {
     setBuildSession({
       nodes: [],
@@ -567,18 +573,27 @@ export default function RoadBuilder() {
         let nodeAt = findNearbyNode(worldCoords.x, worldCoords.y)
         let roadAt = findRoadAtPosition(worldCoords)
         let placePoint = worldCoords
+        let associatedRoadIds: string[] = []
+        
         if (nodeAt) {
-          // Offset from node center
-          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth)
+          // Offset from node center by road width
+          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth * 1.5)
+          // Add connected road IDs
+          associatedRoadIds = [...nodeAt.connectedRoadIds]
         } else if (roadAt) {
-          // Project click onto road, then offset
+          // Project click onto road, then offset perpendicular to road direction
           let closestPoint = null
-          if (roadAt.controlPoints) {
-            // Find closest point on bezier
+          let roadDirection = null
+          
+          if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
+            // Find closest point on bezier and calculate tangent direction
             let minDist = Infinity
             let best = roadAt.start
-            for (let i = 0; i <= 100; i++) {
-              const t = i / 100
+            let bestT = 0
+            
+            // Increase sampling for more accurate point placement
+            for (let i = 0; i <= 200; i++) {
+              const t = i / 200
               const mt = 1 - t
               const bx = mt * mt * mt * roadAt.start.x +
                 3 * mt * mt * t * roadAt.controlPoints[0].x +
@@ -592,19 +607,67 @@ export default function RoadBuilder() {
               if (d < minDist) {
                 minDist = d
                 best = { x: bx, y: by }
+                bestT = t
               }
             }
             closestPoint = best
+            
+            // Calculate tangent direction at this point with higher precision
+            const tangentX = 3 * (1 - bestT) ** 2 * (roadAt.controlPoints[0].x - roadAt.start.x) +
+              6 * (1 - bestT) * bestT * (roadAt.controlPoints[1].x - roadAt.controlPoints[0].x) +
+              3 * bestT ** 2 * (roadAt.end.x - roadAt.controlPoints[1].x)
+            const tangentY = 3 * (1 - bestT) ** 2 * (roadAt.controlPoints[0].y - roadAt.start.y) +
+              6 * (1 - bestT) * bestT * (roadAt.controlPoints[1].y - roadAt.controlPoints[0].y) +
+              3 * bestT ** 2 * (roadAt.end.y - roadAt.controlPoints[1].y)
+            const tangentLength = Math.sqrt(tangentX ** 2 + tangentY ** 2)
+            if (tangentLength > 0) {
+              roadDirection = { x: tangentX / tangentLength, y: tangentY / tangentLength }
+            }
+          } else {
+            // Straight road - use direct line direction
+            const dx = roadAt.end.x - roadAt.start.x
+            const dy = roadAt.end.y - roadAt.start.y
+            const length = Math.sqrt(dx ** 2 + dy ** 2)
+            if (length > 0) {
+              roadDirection = { x: dx / length, y: dy / length }
+            }
+            // For straight roads, find actual closest point on line segment
+            const t = Math.max(0, Math.min(1, 
+              ((worldCoords.x - roadAt.start.x) * dx + (worldCoords.y - roadAt.start.y) * dy) / (dx * dx + dy * dy)
+            ))
+            closestPoint = {
+              x: roadAt.start.x + t * dx,
+              y: roadAt.start.y + t * dy
+            }
           }
-          if (closestPoint) {
-            placePoint = offsetPoint(closestPoint, worldCoords, roadAt.width)
+          
+          if (closestPoint && roadDirection) {
+            // Calculate perpendicular direction (90 degrees from road direction)
+            const perpX = -roadDirection.y
+            const perpY = roadDirection.x
+            
+            // Determine which side of the road to place the point
+            const clickToRoad = { x: worldCoords.x - closestPoint.x, y: worldCoords.y - closestPoint.y }
+            const dotProduct = clickToRoad.x * perpX + clickToRoad.y * perpY
+            const sideMultiplier = dotProduct > 0 ? 1 : -1
+            
+            // Offset perpendicular to road direction with a consistent distance
+            const offsetDistance = roadAt.width * 1.5
+            placePoint = {
+              x: closestPoint.x + perpX * offsetDistance * sideMultiplier,
+              y: closestPoint.y + perpY * offsetDistance * sideMultiplier
+            }
+            
+            // Add this road's ID to associated roads
+            associatedRoadIds = [roadAt.id]
           }
         }
+        
         setPolygonSession(prev => ({
           ...prev,
           isActive: true,
           points: [placePoint],
-          roadIds: [],
+          roadIds: associatedRoadIds
         }))
       } else {
         // Add point to existing polygon
@@ -612,18 +675,38 @@ export default function RoadBuilder() {
         const distanceToFirst = Math.sqrt(
           (worldCoords.x - firstPoint.x) ** 2 + (worldCoords.y - firstPoint.y) ** 2
         )
+
+        // If clicking near first point and we have enough points, complete the polygon
+        if (distanceToFirst < (10 / zoom) && polygonSession.points.length >= 3) {
+          completePolygonSession()
+          return
+        }
+
         let nodeAt = findNearbyNode(worldCoords.x, worldCoords.y)
         let roadAt = findRoadAtPosition(worldCoords)
         let placePoint = worldCoords
+        let newRoadIds = [...polygonSession.roadIds]
+        
         if (nodeAt) {
-          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth)
+          placePoint = offsetPoint(nodeAt, worldCoords, defaultRoadWidth * 1.5)
+          // Add any new connected road IDs
+          nodeAt.connectedRoadIds.forEach(id => {
+            if (!newRoadIds.includes(id)) {
+              newRoadIds.push(id)
+            }
+          })
         } else if (roadAt) {
           let closestPoint = null
-          if (roadAt.controlPoints) {
+          let roadDirection = null
+          
+          if (roadAt.type === RoadType.BEZIER && roadAt.controlPoints) {
             let minDist = Infinity
             let best = roadAt.start
-            for (let i = 0; i <= 100; i++) {
-              const t = i / 100
+            let bestT = 0
+            
+            // Increased sampling for better accuracy
+            for (let i = 0; i <= 200; i++) {
+              const t = i / 200
               const mt = 1 - t
               const bx = mt * mt * mt * roadAt.start.x +
                 3 * mt * mt * t * roadAt.controlPoints[0].x +
@@ -637,23 +720,65 @@ export default function RoadBuilder() {
               if (d < minDist) {
                 minDist = d
                 best = { x: bx, y: by }
+                bestT = t
               }
             }
             closestPoint = best
+            
+            const tangentX = 3 * (1 - bestT) ** 2 * (roadAt.controlPoints[0].x - roadAt.start.x) +
+              6 * (1 - bestT) * bestT * (roadAt.controlPoints[1].x - roadAt.controlPoints[0].x) +
+              3 * bestT ** 2 * (roadAt.end.x - roadAt.controlPoints[1].x)
+            const tangentY = 3 * (1 - bestT) ** 2 * (roadAt.controlPoints[0].y - roadAt.start.y) +
+              6 * (1 - bestT) * bestT * (roadAt.controlPoints[1].y - roadAt.controlPoints[0].y) +
+              3 * bestT ** 2 * (roadAt.end.y - roadAt.controlPoints[1].y)
+            const tangentLength = Math.sqrt(tangentX ** 2 + tangentY ** 2)
+            if (tangentLength > 0) {
+              roadDirection = { x: tangentX / tangentLength, y: tangentY / tangentLength }
+            }
+          } else {
+            const dx = roadAt.end.x - roadAt.start.x
+            const dy = roadAt.end.y - roadAt.start.y
+            const length = Math.sqrt(dx ** 2 + dy ** 2)
+            if (length > 0) {
+              roadDirection = { x: dx / length, y: dy / length }
+            }
+            // Find actual closest point on line segment
+            const t = Math.max(0, Math.min(1, 
+              ((worldCoords.x - roadAt.start.x) * dx + (worldCoords.y - roadAt.start.y) * dy) / (dx * dx + dy * dy)
+            ))
+            closestPoint = {
+              x: roadAt.start.x + t * dx,
+              y: roadAt.start.y + t * dy
+            }
           }
-          if (closestPoint) {
-            placePoint = offsetPoint(closestPoint, worldCoords, roadAt.width)
+          
+          if (closestPoint && roadDirection) {
+            const perpX = -roadDirection.y
+            const perpY = roadDirection.x
+            
+            const clickToRoad = { x: worldCoords.x - closestPoint.x, y: worldCoords.y - closestPoint.y }
+            const dotProduct = clickToRoad.x * perpX + clickToRoad.y * perpY
+            const sideMultiplier = dotProduct > 0 ? 1 : -1
+            
+            const offsetDistance = roadAt.width * 1.5
+            placePoint = {
+              x: closestPoint.x + perpX * offsetDistance * sideMultiplier,
+              y: closestPoint.y + perpY * offsetDistance * sideMultiplier
+            }
+            
+            // Add road ID if not already included
+            if (!newRoadIds.includes(roadAt.id)) {
+              newRoadIds.push(roadAt.id)
+            }
           }
         }
-        // If clicking near first point and we have at least 3 points, close polygon
-        if (distanceToFirst < snapDistance / zoom && polygonSession.points.length >= 3) {
-          completePolygonSession()
-        } else {
-          setPolygonSession(prev => ({
-            ...prev,
-            points: [...prev.points, placePoint],
-          }))
-        }
+        
+        // Update polygon session with new point and road IDs
+        setPolygonSession(prev => ({
+          ...prev,
+          points: [...prev.points, placePoint],
+          roadIds: newRoadIds
+        }))
       }
       return
     }
@@ -674,6 +799,36 @@ export default function RoadBuilder() {
         setSelectedPolygonId(null)
         setIsDraggingNode(true)
         setDraggedNodeId(clickedNode.id)
+        
+        // Store initial node position and control point offsets
+        setNodeDragStartPos({ x: clickedNode.x, y: clickedNode.y })
+        
+        // Calculate and store control point offsets for all connected roads
+        const controlOffsets: { [roadId: string]: { cp0: { x: number; y: number } | null; cp1: { x: number; y: number } | null } } = {}
+        
+        for (const roadId of clickedNode.connectedRoadIds) {
+          const road = roads.find(r => r.id === roadId)
+          if (road && road.type === RoadType.BEZIER && road.controlPoints) {
+            if (road.startNodeId === clickedNode.id) {
+              controlOffsets[roadId] = {
+                cp0: {
+                  x: road.controlPoints[0].x - clickedNode.x,
+                  y: road.controlPoints[0].y - clickedNode.y
+                },
+                cp1: null
+              }
+            } else if (road.endNodeId === clickedNode.id) {
+              controlOffsets[roadId] = {
+                cp0: null,
+                cp1: {
+                  x: road.controlPoints[1].x - clickedNode.x,
+                  y: road.controlPoints[1].y - clickedNode.y
+                }
+              }
+            }
+          }
+        }
+        setNodeDragControlOffsets(controlOffsets)
         return
       }
 
@@ -1144,15 +1299,46 @@ export default function RoadBuilder() {
       return
     }
 
-    if (isDraggingNode && draggedNodeId) {
+    if (isDraggingNode && draggedNodeId && nodeDragStartPos) {
       const node = nodes.find((n) => n.id === draggedNodeId)
       if (node) {
         const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y, [draggedNodeId])
+        
         setNodes((prev) => prev.map((n) => (n.id === draggedNodeId ? { ...n, ...snappedPos } : n)))
+        
+        // Update roads and their control points using stored offsets
         setRoads((prevRoads) =>
           prevRoads.map((r) => {
-            if (r.startNodeId === draggedNodeId) return { ...r, start: { x: snappedPos.x, y: snappedPos.y } }
-            if (r.endNodeId === draggedNodeId) return { ...r, end: { x: snappedPos.x, y: snappedPos.y } }
+            if (r.startNodeId === draggedNodeId) {
+              const updatedRoad = { ...r, start: { x: snappedPos.x, y: snappedPos.y } }
+              // Update control points if this is a bezier road
+              if (r.type === RoadType.BEZIER && r.controlPoints && nodeDragControlOffsets[r.id]?.cp0) {
+                const newControlPoints = [...r.controlPoints] as [{ x: number; y: number }, { x: number; y: number }]
+                const offset = nodeDragControlOffsets[r.id].cp0!
+                // Use stored offset to maintain constant distance and direction
+                newControlPoints[0] = {
+                  x: snappedPos.x + offset.x,
+                  y: snappedPos.y + offset.y
+                }
+                updatedRoad.controlPoints = newControlPoints
+              }
+              return updatedRoad
+            }
+            if (r.endNodeId === draggedNodeId) {
+              const updatedRoad = { ...r, end: { x: snappedPos.x, y: snappedPos.y } }
+              // Update control points if this is a bezier road
+              if (r.type === RoadType.BEZIER && r.controlPoints && nodeDragControlOffsets[r.id]?.cp1) {
+                const newControlPoints = [...r.controlPoints] as [{ x: number; y: number }, { x: number; y: number }]
+                const offset = nodeDragControlOffsets[r.id].cp1!
+                // Use stored offset to maintain constant distance and direction
+                newControlPoints[1] = {
+                  x: snappedPos.x + offset.x,
+                  y: snappedPos.y + offset.y
+                }
+                updatedRoad.controlPoints = newControlPoints
+              }
+              return updatedRoad
+            }
             return r
           }),
         )
@@ -1200,6 +1386,10 @@ export default function RoadBuilder() {
     setIsDraggingPolygon(false)
     setIsDraggingPolygonPoint(false)
     setDraggedPolygonPointIndex(null)
+    
+    // Clear node dragging state
+    setNodeDragStartPos(null)
+    setNodeDragControlOffsets({})
 
     const currentSession = buildSessionRef.current
     const wasDraggingHandle = isDraggingNewPointHandle
