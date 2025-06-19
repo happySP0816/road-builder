@@ -13,6 +13,7 @@ import SelectedPolygonPanel from "./selected-polygon-panel"
 import ActionsPanel from "./actions-panel"
 import { Input } from "@/components/ui/input"
 import { Magnet, Ruler, Tag, Shapes, Save, Upload } from "lucide-react"
+import MapNameModal from "./map-name-modal"
 
 // Helper function for distance from point to line segment
 function distToSegmentSquared(p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) {
@@ -156,6 +157,8 @@ export default function RoadBuilder() {
   const [nodeDragControlOffsets, setNodeDragControlOffsets] = useState<{
     [roadId: string]: { cp0: { x: number; y: number } | null; cp1: { x: number; y: number } | null }
   }>({})
+
+  const [isMapNameModalOpen, setIsMapNameModalOpen] = useState(false)
 
   const completeBuildSession = useCallback(() => {
     setBuildSession({
@@ -1753,15 +1756,20 @@ export default function RoadBuilder() {
 
   // Add inside the RoadBuilder component, near other button handlers
   const handleSaveCanvas = () => {
+    setIsMapNameModalOpen(true)
+  }
+
+  const handleSaveWithName = (mapName: string) => {
     const state: CanvasState = {
       nodes,
-      roads,
+      roads,  // Don't modify road names
       polygons,
       backgroundImages,
       panOffset,
       zoom,
     }
-    downloadCanvasState(state)
+    downloadCanvasState(state, `${mapName}.json`)
+    setIsMapNameModalOpen(false)
   }
 
   const handleLoadCanvas = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2107,6 +2115,12 @@ export default function RoadBuilder() {
           {polygonVertexError}
         </div>
       )}
+      
+      <MapNameModal 
+        isOpen={isMapNameModalOpen}
+        onClose={() => setIsMapNameModalOpen(false)}
+        onSave={handleSaveWithName}
+      />
     </div>
   )
 }
