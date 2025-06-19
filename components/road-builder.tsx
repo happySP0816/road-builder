@@ -160,6 +160,10 @@ export default function RoadBuilder() {
 
   const [isMapNameModalOpen, setIsMapNameModalOpen] = useState(false)
 
+  // Add new state for polygon drag start
+  const [polygonDragStartMousePos, setPolygonDragStartMousePos] = useState<{ x: number; y: number } | null>(null)
+  const [polygonDragStartPoints, setPolygonDragStartPoints] = useState<{ x: number; y: number }[] | null>(null)
+
   const completeBuildSession = useCallback(() => {
     setBuildSession({
       nodes: [],
@@ -850,18 +854,9 @@ export default function RoadBuilder() {
         } else {
           // Start dragging the entire polygon
           setIsDraggingPolygon(true)
-          // Calculate offset from polygon centroid
-          let centroidX = 0, centroidY = 0
-          for (const point of clickedPolygon.points) {
-            centroidX += point.x
-            centroidY += point.y
-          }
-          centroidX /= clickedPolygon.points.length
-          centroidY /= clickedPolygon.points.length
-          setPolygonDragOffset({
-            x: worldCoords.x - centroidX,
-            y: worldCoords.y - centroidY
-          })
+          // Store initial mouse position and polygon points for accurate dragging
+          setPolygonDragStartMousePos(worldCoords)
+          setPolygonDragStartPoints(clickedPolygon.points.map(p => ({ ...p })))
         }
         return
       }
@@ -1230,44 +1225,20 @@ export default function RoadBuilder() {
       return
     }
 
-    if (isDraggingPolygon && selectedPolygonId) {
-      const polygon = polygons.find(p => p.id === selectedPolygonId)
-      if (polygon) {
-        // Calculate new centroid position
-        const newCentroidX = worldCoords.x - polygonDragOffset.x
-        const newCentroidY = worldCoords.y - polygonDragOffset.y
-        
-        // Calculate current centroid
-        let currentCentroidX = 0, currentCentroidY = 0
-        for (const point of polygon.points) {
-          currentCentroidX += point.x
-          currentCentroidY += point.y
-        }
-        currentCentroidX /= polygon.points.length
-        currentCentroidY /= polygon.points.length
-        
-        // Calculate offset to apply to all points
-        const offsetX = newCentroidX - currentCentroidX
-        const offsetY = newCentroidY - currentCentroidY
-        
-        // Update polygon points
-        setPolygons(prev => prev.map(p => {
-          if (p.id === selectedPolygonId) {
-            return {
-              ...p,
-              points: p.points.map(point => ({
-                x: point.x + offsetX,
-                y: point.y + offsetY
-              })),
-              area: calculatePolygonArea(p.points.map(point => ({
-                x: point.x + offsetX,
-                y: point.y + offsetY
-              })), scaleMetersPerPixel)
-            }
+    if (isDraggingPolygon && selectedPolygonId && polygonDragStartMousePos && polygonDragStartPoints) {
+      const dx = worldCoords.x - polygonDragStartMousePos.x
+      const dy = worldCoords.y - polygonDragStartMousePos.y
+      setPolygons(prev => prev.map(p => {
+        if (p.id === selectedPolygonId) {
+          const newPoints = polygonDragStartPoints.map(pt => ({ x: pt.x + dx, y: pt.y + dy }))
+          return {
+            ...p,
+            points: newPoints,
+            area: calculatePolygonArea(newPoints, scaleMetersPerPixel)
           }
-          return p
-        }))
-      }
+        }
+        return p
+      }))
       return
     }
 
@@ -1394,6 +1365,9 @@ export default function RoadBuilder() {
     // Clear node dragging state
     setNodeDragStartPos(null)
     setNodeDragControlOffsets({})
+    // Clear polygon drag start state
+    setPolygonDragStartMousePos(null)
+    setPolygonDragStartPoints(null)
 
     const currentSession = buildSessionRef.current
     const wasDraggingHandle = isDraggingNewPointHandle
