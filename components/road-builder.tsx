@@ -2,6 +2,7 @@
 
 import { useState, type MouseEvent, useEffect, useRef, useCallback } from "react"
 import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
+import { downloadCanvasState, readCanvasStateFile, type CanvasState } from "@/lib/save-load"
 import RoadCanvas from "./road-canvas"
 import StatusBar from "./status-bar"
 import DrawingTools from "./drawing-tools"
@@ -11,7 +12,7 @@ import SelectedItemPanel from "./selected-item-panel"
 import SelectedPolygonPanel from "./selected-polygon-panel"
 import ActionsPanel from "./actions-panel"
 import { Input } from "@/components/ui/input"
-import { Magnet, Ruler, Tag, Shapes } from "lucide-react"
+import { Magnet, Ruler, Tag, Shapes, Save, Upload } from "lucide-react"
 
 // Helper function for distance from point to line segment
 function distToSegmentSquared(p: { x: number; y: number }, v: { x: number; y: number }, w: { x: number; y: number }) {
@@ -80,80 +81,6 @@ function splitCubicBezier(
     right: [p0123, p123, p23, p3],
     splitPoint: p0123,
   }
-}
-
-// Helper function to get point on Bezier curve at t
-function getBezierPoint(t: number, start: { x: number; y: number }, cp1: { x: number; y: number }, cp2: { x: number; y: number }, end: { x: number; y: number }) {
-  const mt = 1 - t
-  return {
-    x: mt * mt * mt * start.x + 3 * mt * mt * t * cp1.x + 3 * mt * t * t * cp2.x + t * t * t * end.x,
-    y: mt * mt * mt * start.y + 3 * mt * mt * t * cp1.y + 3 * mt * t * t * cp2.y + t * t * t * end.y
-  }
-}
-
-// Function to find nearest point on a road
-function findNearestPointOnRoad(point: { x: number; y: number }, road: Road): { x: number; y: number } | null {
-  if (road.type === RoadType.BEZIER && road.controlPoints) {
-    // For Bezier curves, sample points and find nearest
-    let minDist = Infinity
-    let nearestPoint = null
-    const samples = 50
-
-    for (let i = 0; i <= samples; i++) {
-      const t = i / samples
-      const curvePoint = getBezierPoint(t, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
-      const dist = Math.sqrt((point.x - curvePoint.x) ** 2 + (point.y - curvePoint.y) ** 2)
-      
-      if (dist < minDist) {
-        minDist = dist
-        nearestPoint = curvePoint
-      }
-    }
-
-    return nearestPoint
-  } else {
-    // For straight roads, project onto line segment
-    const l2 = (road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2
-    if (l2 === 0) return road.start
-    
-    let t = ((point.x - road.start.x) * (road.end.x - road.start.x) + 
-             (point.y - road.start.y) * (road.end.y - road.start.y)) / l2
-    t = Math.max(0, Math.min(1, t))
-    
-    return {
-      x: road.start.x + t * (road.end.x - road.start.x),
-      y: road.start.y + t * (road.end.y - road.start.y)
-    }
-  }
-}
-
-// Function to snap a point to nearby roads if within threshold
-function snapPointToRoads(point: { x: number; y: number }, roads: Road[], snapThreshold: number): { x: number; y: number } {
-  let nearestDist = snapThreshold * snapThreshold
-  let snappedPoint = { ...point }
-
-  for (const road of roads) {
-    if (road.type === RoadType.BEZIER && road.controlPoints) {
-      // For Bezier roads, find nearest point on curve
-      const nearestOnRoad = findNearestPointOnRoad(point, road)
-      if (nearestOnRoad) {
-        const dist = (point.x - nearestOnRoad.x) ** 2 + (point.y - nearestOnRoad.y) ** 2
-        if (dist < nearestDist) {
-          nearestDist = dist
-          snappedPoint = nearestOnRoad
-        }
-      }
-    } else {
-      // For straight roads, use distToSegmentSquared
-      const dist = distToSegmentSquared(point, road.start, road.end)
-      if (dist < nearestDist) {
-        nearestDist = dist
-        snappedPoint = findNearestPointOnRoad(point, road) || point
-      }
-    }
-  }
-
-  return snappedPoint
 }
 
 export default function RoadBuilder() {
@@ -1302,36 +1229,51 @@ export default function RoadBuilder() {
 
     if (isDraggingPolygon && selectedPolygonId) {
       const polygon = polygons.find(p => p.id === selectedPolygonId)
-      if (polygon && mousePosition) {
-        // Calculate the offset to apply to all points directly from mouse movement
+      if (polygon) {
+        // Calculate new centroid position
+        const newCentroidX = worldCoords.x - polygonDragOffset.x
+        const newCentroidY = worldCoords.y - polygonDragOffset.y
+        
+        // Calculate current centroid
+        let currentCentroidX = 0, currentCentroidY = 0
+        for (const point of polygon.points) {
+          currentCentroidX += point.x
+          currentCentroidY += point.y
+        }
+        currentCentroidX /= polygon.points.length
+        currentCentroidY /= polygon.points.length
+        
+        // Calculate offset to apply to all points
+        const offsetX = newCentroidX - currentCentroidX
+        const offsetY = newCentroidY - currentCentroidY
+        
+        // Update polygon points
         setPolygons(prev => prev.map(p => {
           if (p.id === selectedPolygonId) {
             return {
               ...p,
               points: p.points.map(point => ({
-                x: point.x + (worldCoords.x - mousePosition.x),
-                y: point.y + (worldCoords.y - mousePosition.y)
+                x: point.x + offsetX,
+                y: point.y + offsetY
               })),
               area: calculatePolygonArea(p.points.map(point => ({
-                x: point.x + (worldCoords.x - mousePosition.x),
-                y: point.y + (worldCoords.y - mousePosition.y)
+                x: point.x + offsetX,
+                y: point.y + offsetY
               })), scaleMetersPerPixel)
             }
           }
           return p
         }))
-        // Update mouse position for next frame
-        setMousePosition(worldCoords)
       }
       return
     }
 
     if (isDraggingPolygonPoint && selectedPolygonId && draggedPolygonPointIndex !== null) {
-      const snappedPos = snapPointToRoads(worldCoords, roads, snapDistance)
+      const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
       setPolygons(prev => prev.map(p => {
         if (p.id === selectedPolygonId) {
           const newPoints = [...p.points]
-          newPoints[draggedPolygonPointIndex] = snappedPos
+          newPoints[draggedPolygonPointIndex!] = { x: snappedPos.x, y: snappedPos.y }
           return {
             ...p,
             points: newPoints,
@@ -1809,6 +1751,37 @@ export default function RoadBuilder() {
     setBackgroundImages(prev => prev.map(img => img.id === id ? { ...img, visible: !img.visible } : img))
   }
 
+  // Add inside the RoadBuilder component, near other button handlers
+  const handleSaveCanvas = () => {
+    const state: CanvasState = {
+      nodes,
+      roads,
+      polygons,
+      backgroundImages,
+      panOffset,
+      zoom,
+    }
+    downloadCanvasState(state)
+  }
+
+  const handleLoadCanvas = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const state = await readCanvasStateFile(file)
+      setNodes(state.nodes)
+      setRoads(state.roads)
+      setPolygons(state.polygons)
+      setBackgroundImages(state.backgroundImages)
+      setPanOffset(state.panOffset)
+      setZoom(state.zoom)
+    } catch (error) {
+      console.error('Error loading canvas:', error)
+      // You might want to show an error message to the user here
+    }
+  }
+
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Left Sidebar - Drawing Tools Only */}
@@ -1923,6 +1896,35 @@ export default function RoadBuilder() {
                   Polygons
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Add Save/Load buttons */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+              <span>Save/Load</span>
+            </h3>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs bg-white border-gray-200 text-gray-400 hover:bg-gray-100"
+                title="Save Canvas"
+                onClick={handleSaveCanvas}
+                type="button"
+              >
+                <Save className="w-6 h-6 mb-1" />
+                Save
+              </button>
+
+              <label className="flex-1 p-2 rounded-md border transition-colors flex flex-col items-center text-xs bg-white border-gray-200 text-gray-400 hover:bg-gray-100 cursor-pointer">
+                <Upload className="w-6 h-6 mb-1" />
+                Load
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleLoadCanvas}
+                  className="hidden"
+                />
+              </label>
             </div>
           </div>
 
