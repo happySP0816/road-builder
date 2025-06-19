@@ -82,6 +82,80 @@ function splitCubicBezier(
   }
 }
 
+// Helper function to get point on Bezier curve at t
+function getBezierPoint(t: number, start: { x: number; y: number }, cp1: { x: number; y: number }, cp2: { x: number; y: number }, end: { x: number; y: number }) {
+  const mt = 1 - t
+  return {
+    x: mt * mt * mt * start.x + 3 * mt * mt * t * cp1.x + 3 * mt * t * t * cp2.x + t * t * t * end.x,
+    y: mt * mt * mt * start.y + 3 * mt * mt * t * cp1.y + 3 * mt * t * t * cp2.y + t * t * t * end.y
+  }
+}
+
+// Function to find nearest point on a road
+function findNearestPointOnRoad(point: { x: number; y: number }, road: Road): { x: number; y: number } | null {
+  if (road.type === RoadType.BEZIER && road.controlPoints) {
+    // For Bezier curves, sample points and find nearest
+    let minDist = Infinity
+    let nearestPoint = null
+    const samples = 50
+
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples
+      const curvePoint = getBezierPoint(t, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+      const dist = Math.sqrt((point.x - curvePoint.x) ** 2 + (point.y - curvePoint.y) ** 2)
+      
+      if (dist < minDist) {
+        minDist = dist
+        nearestPoint = curvePoint
+      }
+    }
+
+    return nearestPoint
+  } else {
+    // For straight roads, project onto line segment
+    const l2 = (road.end.x - road.start.x) ** 2 + (road.end.y - road.start.y) ** 2
+    if (l2 === 0) return road.start
+    
+    let t = ((point.x - road.start.x) * (road.end.x - road.start.x) + 
+             (point.y - road.start.y) * (road.end.y - road.start.y)) / l2
+    t = Math.max(0, Math.min(1, t))
+    
+    return {
+      x: road.start.x + t * (road.end.x - road.start.x),
+      y: road.start.y + t * (road.end.y - road.start.y)
+    }
+  }
+}
+
+// Function to snap a point to nearby roads if within threshold
+function snapPointToRoads(point: { x: number; y: number }, roads: Road[], snapThreshold: number): { x: number; y: number } {
+  let nearestDist = snapThreshold * snapThreshold
+  let snappedPoint = { ...point }
+
+  for (const road of roads) {
+    if (road.type === RoadType.BEZIER && road.controlPoints) {
+      // For Bezier roads, find nearest point on curve
+      const nearestOnRoad = findNearestPointOnRoad(point, road)
+      if (nearestOnRoad) {
+        const dist = (point.x - nearestOnRoad.x) ** 2 + (point.y - nearestOnRoad.y) ** 2
+        if (dist < nearestDist) {
+          nearestDist = dist
+          snappedPoint = nearestOnRoad
+        }
+      }
+    } else {
+      // For straight roads, use distToSegmentSquared
+      const dist = distToSegmentSquared(point, road.start, road.end)
+      if (dist < nearestDist) {
+        nearestDist = dist
+        snappedPoint = findNearestPointOnRoad(point, road) || point
+      }
+    }
+  }
+
+  return snappedPoint
+}
+
 export default function RoadBuilder() {
   const [nodes, setNodes] = useState<Node[]>([])
   const [roads, setRoads] = useState<Road[]>([])
@@ -1228,51 +1302,36 @@ export default function RoadBuilder() {
 
     if (isDraggingPolygon && selectedPolygonId) {
       const polygon = polygons.find(p => p.id === selectedPolygonId)
-      if (polygon) {
-        // Calculate new centroid position
-        const newCentroidX = worldCoords.x - polygonDragOffset.x
-        const newCentroidY = worldCoords.y - polygonDragOffset.y
-        
-        // Calculate current centroid
-        let currentCentroidX = 0, currentCentroidY = 0
-        for (const point of polygon.points) {
-          currentCentroidX += point.x
-          currentCentroidY += point.y
-        }
-        currentCentroidX /= polygon.points.length
-        currentCentroidY /= polygon.points.length
-        
-        // Calculate offset to apply to all points
-        const offsetX = newCentroidX - currentCentroidX
-        const offsetY = newCentroidY - currentCentroidY
-        
-        // Update polygon points
+      if (polygon && mousePosition) {
+        // Calculate the offset to apply to all points directly from mouse movement
         setPolygons(prev => prev.map(p => {
           if (p.id === selectedPolygonId) {
             return {
               ...p,
               points: p.points.map(point => ({
-                x: point.x + offsetX,
-                y: point.y + offsetY
+                x: point.x + (worldCoords.x - mousePosition.x),
+                y: point.y + (worldCoords.y - mousePosition.y)
               })),
               area: calculatePolygonArea(p.points.map(point => ({
-                x: point.x + offsetX,
-                y: point.y + offsetY
+                x: point.x + (worldCoords.x - mousePosition.x),
+                y: point.y + (worldCoords.y - mousePosition.y)
               })), scaleMetersPerPixel)
             }
           }
           return p
         }))
+        // Update mouse position for next frame
+        setMousePosition(worldCoords)
       }
       return
     }
 
     if (isDraggingPolygonPoint && selectedPolygonId && draggedPolygonPointIndex !== null) {
-      const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+      const snappedPos = snapPointToRoads(worldCoords, roads, snapDistance)
       setPolygons(prev => prev.map(p => {
         if (p.id === selectedPolygonId) {
           const newPoints = [...p.points]
-          newPoints[draggedPolygonPointIndex!] = { x: snappedPos.x, y: snappedPos.y }
+          newPoints[draggedPolygonPointIndex] = snappedPos
           return {
             ...p,
             points: newPoints,

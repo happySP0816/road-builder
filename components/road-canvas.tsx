@@ -463,11 +463,11 @@ export default function RoadCanvas({
       ctx.fill()
     }
 
+    // Draw lines between points
     ctx.strokeStyle = session.strokeColor
     ctx.lineWidth = 2 / zoom
     ctx.setLineDash([5 / zoom, 5 / zoom])
 
-    // Draw lines between points
     if (session.points.length > 1) {
       ctx.beginPath()
       ctx.moveTo(session.points[0].x, session.points[0].y)
@@ -477,10 +477,20 @@ export default function RoadCanvas({
       ctx.stroke()
     }
 
-    // Draw line to mouse position
+    // Draw line to mouse position with snapping indicator
     if (currentMousePos && session.points.length > 0) {
+      const lastPoint = session.points[session.points.length - 1]
+      
+      // Draw snapping indicator
+      ctx.strokeStyle = "#10b981" // Green color for snapping
       ctx.beginPath()
-      ctx.moveTo(session.points[session.points.length - 1].x, session.points[session.points.length - 1].y)
+      ctx.arc(currentMousePos.x, currentMousePos.y, 6 / zoom, 0, Math.PI * 2)
+      ctx.stroke()
+
+      // Draw line from last point to current
+      ctx.strokeStyle = session.strokeColor
+      ctx.beginPath()
+      ctx.moveTo(lastPoint.x, lastPoint.y)
       ctx.lineTo(currentMousePos.x, currentMousePos.y)
       ctx.stroke()
 
