@@ -472,24 +472,24 @@ export default function RoadCanvas({
     }
 
     // Draw preview fill if we have enough points
-    if (points.length >= 2 && currentMousePos) {
-      ctx.fillStyle = hexToRgba(session.fillColor, session.opacity * 0.5) // Reduced opacity for preview
-      ctx.beginPath()
-      ctx.moveTo(points[0].x, points[0].y)
-      // Draw existing bezier segments
-      for (let i = 0; i < points.length - 1; i++) {
-        ctx.bezierCurveTo(points[i].cp2.x, points[i].cp2.y, points[i + 1].cp1.x, points[i + 1].cp1.y, points[i + 1].x, points[i + 1].y);
-      }
-      // Draw segment to mouse
-      const lastPoint = points[points.length - 1]
-      if (isActivelyDrawingCurve) {
-        ctx.bezierCurveTo(lastPoint.cp2.x, lastPoint.cp2.y, currentMousePos.x, currentMousePos.y, currentMousePos.x, currentMousePos.y)
-      } else {
-        ctx.lineTo(currentMousePos.x, currentMousePos.y)
-      }
-      ctx.closePath()
-      ctx.fill()
-    }
+    // if (points.length >= 2 && currentMousePos) {
+    //   ctx.fillStyle = hexToRgba(session.fillColor, session.opacity * 0.5) // Reduced opacity for preview
+    //   ctx.beginPath()
+    //   ctx.moveTo(points[0].x, points[0].y)
+    //   // Draw existing bezier segments
+    //   for (let i = 0; i < points.length - 1; i++) {
+    //     ctx.bezierCurveTo(points[i].cp2.x, points[i].cp2.y, points[i + 1].cp1.x, points[i + 1].cp1.y, points[i + 1].x, points[i + 1].y);
+    //   }
+    //   // Draw segment to mouse
+    //   const lastPoint = points[points.length - 1]
+    //   if (isActivelyDrawingCurve) {
+    //     ctx.bezierCurveTo(lastPoint.cp2.x, lastPoint.cp2.y, currentMousePos.x, currentMousePos.y, currentMousePos.x, currentMousePos.y)
+    //   } else {
+    //     ctx.lineTo(currentMousePos.x, currentMousePos.y)
+    //   }
+    //   ctx.closePath()
+    //   ctx.fill()
+    // }
 
     ctx.strokeStyle = session.strokeColor
     ctx.lineWidth = 2 / zoom
@@ -516,15 +516,6 @@ export default function RoadCanvas({
         ctx.lineTo(currentMousePos.x, currentMousePos.y);
       }
       ctx.stroke()
-
-      // Draw line back to first point if we have enough points
-      if (points.length >= 2) {
-        ctx.strokeStyle = "#10b981"
-        ctx.beginPath()
-        ctx.moveTo(currentMousePos.x, currentMousePos.y)
-        ctx.lineTo(points[0].x, points[0].y)
-        ctx.stroke()
-      }
     }
 
     ctx.setLineDash([])
@@ -559,6 +550,15 @@ export default function RoadCanvas({
       ctx.arc(point.cp2.x, point.cp2.y, 3 / zoom, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // Draw line back to first point if we have enough points
+    // if (points.length >= 2) {
+    //   ctx.strokeStyle = "#10b981"
+    //   ctx.beginPath()
+    //   ctx.moveTo(currentMousePos.x, currentMousePos.y)
+    //   ctx.lineTo(points[0].x, points[0].y)
+    //   ctx.stroke()
+    // }
   }
 
   useEffect(() => {
