@@ -184,6 +184,11 @@ export default function RoadBuilder() {
   const [draggedPolygonPointIndex, setDraggedPolygonPointIndex] = useState<number | null>(null)
   const [polygonDragOffset, setPolygonDragOffset] = useState({ x: 0, y: 0 })
   const [isDraggingPolygonHandle, setIsDraggingPolygonHandle] = useState(false)
+  const [draggedPolygonControlPointInfo, setDraggedPolygonControlPointInfo] = useState<{
+    polygonId: string
+    pointIndex: number
+    handle: "cp1" | "cp2"
+  } | null>(null)
 
   // Connection mode state
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
@@ -234,24 +239,38 @@ export default function RoadBuilder() {
   }, [defaultRoadWidth])
 
   const completePolygonSession = useCallback(() => {
-    if (polygonSession.points.length >= 3) {
+    if (polygonSession.points.length >= 2) {
       const polygonId = `polygon-${Date.now()}`
-      const area = calculatePolygonArea(polygonSession.points, scaleMetersPerPixel)
-      
+
+      const finalPoints = [...polygonSession.points]
+      if (finalPoints.length >= 2) {
+        const firstPoint = finalPoints[0]
+        // To make a smooth closing loop, automatically adjust the first point's
+        // incoming control point (cp1) to be a reflection of its outgoing control point (cp2).
+        if (firstPoint.cp2) {
+          firstPoint.cp1 = {
+            x: firstPoint.x - (firstPoint.cp2.x - firstPoint.x),
+            y: firstPoint.y - (firstPoint.cp2.y - firstPoint.y),
+          }
+        }
+      }
+
+      const area = calculatePolygonArea(finalPoints, scaleMetersPerPixel)
+
       const newPolygon: Polygon = {
         id: polygonId,
         name: "",
-        points: [...polygonSession.points],
+        points: finalPoints,
         roadIds: [...polygonSession.roadIds],
         fillColor: polygonSession.fillColor,
         strokeColor: polygonSession.strokeColor,
         opacity: polygonSession.opacity,
         area: area,
       }
-      
-      setPolygons(prev => [...prev, newPolygon])
+
+      setPolygons((prev) => [...prev, newPolygon])
     }
-    
+
     setPolygonSession({
       points: [],
       roadIds: [],
@@ -418,6 +437,37 @@ export default function RoadBuilder() {
         return i
       }
     }
+    return null
+  }
+
+  const findNearbyPolygonControlPoint = (worldCoords: { x: number; y: number }): {
+    polygonId: string
+    pointIndex: number
+    handle: "cp1" | "cp2"
+  } | null => {
+    if (!selectedPolygonId) return null
+    const polygon = polygons.find((p) => p.id === selectedPolygonId)
+    if (!polygon) return null
+
+    for (let i = 0; i < polygon.points.length; i++) {
+      const point = polygon.points[i]
+      const tolerance = 10 / zoom
+
+      if (point.cp1) {
+        const distCp1 = Math.sqrt((point.cp1.x - worldCoords.x) ** 2 + (point.cp1.y - worldCoords.y) ** 2)
+        if (distCp1 < tolerance) {
+          return { polygonId: polygon.id, pointIndex: i, handle: "cp1" }
+        }
+      }
+
+      if (point.cp2) {
+        const distCp2 = Math.sqrt((point.cp2.x - worldCoords.x) ** 2 + (point.cp2.y - worldCoords.y) ** 2)
+        if (distCp2 < tolerance) {
+          return { polygonId: polygon.id, pointIndex: i, handle: "cp2" }
+        }
+      }
+    }
+
     return null
   }
 
@@ -657,6 +707,15 @@ export default function RoadBuilder() {
 
     if (drawingMode === "select") {
       // Unified select mode - check for control points first, then nodes, then polygons, then roads
+      const clickedPolygonControlPoint = findNearbyPolygonControlPoint(worldCoords)
+      if (clickedPolygonControlPoint) {
+        setDraggedPolygonControlPointInfo(clickedPolygonControlPoint)
+        setIsDraggingNode(false)
+        setIsDraggingPolygon(false)
+        setIsDraggingPolygonPoint(false)
+        return
+      }
+
       const clickedControlPoint = findNearbyControlPoint(worldCoords)
       if (clickedControlPoint) {
         setIsDraggingNode(false)
@@ -1093,6 +1152,44 @@ export default function RoadBuilder() {
       return
     }
 
+    if (draggedPolygonControlPointInfo) {
+      const { polygonId, pointIndex, handle } = draggedPolygonControlPointInfo
+      const maintainSymmetry = !e.shiftKey // Break symmetry if Shift is held
+
+      setPolygons((prevPolygons) =>
+        prevPolygons.map((p) => {
+          if (p.id === polygonId) {
+            const newPoints = [...p.points]
+            const pointToUpdate = { ...newPoints[pointIndex] }
+
+            pointToUpdate[handle] = { x: worldCoords.x, y: worldCoords.y }
+
+            if (maintainSymmetry) {
+              const dx = worldCoords.x - pointToUpdate.x
+              const dy = worldCoords.y - pointToUpdate.y
+
+              if (handle === "cp1") {
+                pointToUpdate.cp2 = { x: pointToUpdate.x - dx, y: pointToUpdate.y - dy }
+              } else {
+                // handle === 'cp2'
+                pointToUpdate.cp1 = { x: pointToUpdate.x - dx, y: pointToUpdate.y - dy }
+              }
+            }
+
+            newPoints[pointIndex] = pointToUpdate
+
+            return {
+              ...p,
+              points: newPoints,
+              area: calculatePolygonArea(newPoints, scaleMetersPerPixel),
+            }
+          }
+          return p
+        }),
+      )
+      return
+    }
+
     if (isDraggingPolygon && selectedPolygonId && polygonDragStartMousePos && polygonDragStartPoints) {
       const dx = worldCoords.x - polygonDragStartMousePos.x
       const dy = worldCoords.y - polygonDragStartMousePos.y
@@ -1265,6 +1362,7 @@ export default function RoadBuilder() {
     setIsDraggingNode(false)
     setDraggedNodeId(null)
     setDraggedControlPointInfo(null)
+    setDraggedPolygonControlPointInfo(null)
     setIsDraggingPolygon(false)
     setIsDraggingPolygonPoint(false)
     setDraggedPolygonPointIndex(null)
@@ -1407,7 +1505,8 @@ export default function RoadBuilder() {
         isDraggingNode ||
         isDraggingPolygon ||
         isDraggingPolygonPoint ||
-        isDraggingPolygonHandle
+        isDraggingPolygonHandle ||
+        draggedPolygonControlPointInfo
       ) {
         handleMouseMove(event as any)
       }
@@ -1420,7 +1519,8 @@ export default function RoadBuilder() {
         isDraggingNode ||
         isDraggingPolygon ||
         isDraggingPolygonPoint ||
-        isDraggingPolygonHandle
+        isDraggingPolygonHandle ||
+        draggedPolygonControlPointInfo
       ) {
         handleMouseUp(event as any)
       }
@@ -1433,7 +1533,8 @@ export default function RoadBuilder() {
       isDraggingNode ||
       isDraggingPolygon ||
       isDraggingPolygonPoint ||
-      isDraggingPolygonHandle
+      isDraggingPolygonHandle ||
+      draggedPolygonControlPointInfo
     ) {
       window.addEventListener("mousemove", handleGlobalMouseMove)
       window.addEventListener("mouseup", handleGlobalMouseUp)
@@ -1442,7 +1543,7 @@ export default function RoadBuilder() {
       window.removeEventListener("mousemove", handleGlobalMouseMove)
       window.removeEventListener("mouseup", handleGlobalMouseUp)
     }
-  }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, isDraggingPolygon, isDraggingPolygonPoint, isDraggingPolygonHandle, panOffset, zoom])
+  }, [isPanning, draggedControlPointInfo, drawingMode, isDraggingNewPointHandle, isDraggingNode, isDraggingPolygon, isDraggingPolygonPoint, isDraggingPolygonHandle, panOffset, zoom, draggedPolygonControlPointInfo])
 
   const calculateRoadLength = (road: Road): number => {
     if (road.type === RoadType.BEZIER && road.controlPoints) {
@@ -1726,7 +1827,7 @@ export default function RoadBuilder() {
           panOffset={panOffset}
           zoom={zoom}
           mousePosition={mousePosition}
-          isActivelyDrawingCurve={(isDraggingNewPointHandle && buildSession.roadType === RoadType.BEZIER) || isDraggingPolygonHandle}
+          isActivelyDrawingCurve={(isDraggingNewPointHandle && buildSession.roadType === RoadType.BEZIER) || isDraggingPolygonHandle || !!draggedPolygonControlPointInfo}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
