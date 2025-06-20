@@ -100,6 +100,69 @@ function isPointInPolygon(point: { x: number; y: number }, polygon: PolygonVerte
   return inside
 }
 
+function getBezierPointAndTangent(
+  t: number,
+  start: { x: number; y: number },
+  cp1: { x: number; y: number },
+  cp2: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const mt = 1 - t
+  const mt2 = mt * mt
+  const t2 = t * t
+
+  const x = mt * mt2 * start.x + 3 * mt2 * t * cp1.x + 3 * mt * t2 * cp2.x + t * t2 * end.x
+  const y = mt * mt2 * start.y + 3 * mt2 * t * cp1.y + 3 * mt * t2 * cp2.y + t * t2 * end.y
+
+  // Derivative
+  const dx = 3 * mt2 * (cp1.x - start.x) + 6 * mt * t * (cp2.x - cp1.x) + 3 * t2 * (end.x - cp2.x)
+  const dy = 3 * mt2 * (cp1.y - start.y) + 6 * mt * t * (cp2.y - cp1.y) + 3 * t2 * (end.y - cp2.y)
+
+  return { point: { x, y }, tangent: { x: dx, y: dy } }
+}
+
+function findClosestRoadInfo(
+  point: { x: number; y: number },
+  roads: Road[],
+): { road: Road | null; distance: number; closestPoint: { x: number; y: number } | null; t: number } {
+  let closestRoad: Road | null = null
+  let minDist = Infinity
+  let finalT = 0
+  let finalPoint = null
+
+  for (const road of roads) {
+    if (road.type === RoadType.BEZIER && road.controlPoints) {
+      // A quick check using a few samples to see if this road is a candidate
+      // to avoid expensive calculations on every road.
+      let candidate = false
+      const samples = 20
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples
+        const mt = 1 - t
+        const x = mt * mt * mt * road.start.x + 3 * mt * mt * t * road.controlPoints[0].x + 3 * mt * t * t * road.controlPoints[1].x + t * t * t * road.end.x
+        const y = mt * mt * mt * road.start.y + 3 * mt * mt * t * road.controlPoints[0].y + 3 * mt * t * t * road.controlPoints[1].y + t * t * t * road.end.y
+        if (Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2) < minDist + 50) { // 50px heuristic
+          candidate = true
+          break
+        }
+      }
+
+      if (candidate) {
+        const t = findTForPointOnBezier(point, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+        const { point: onCurve } = getBezierPointAndTangent(t, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+        const dist = Math.sqrt((point.x - onCurve.x) ** 2 + (point.y - onCurve.y) ** 2)
+        if (dist < minDist) {
+          minDist = dist
+          closestRoad = road
+          finalT = t
+          finalPoint = onCurve
+        }
+      }
+    }
+  }
+  return { road: closestRoad, distance: minDist, closestPoint: finalPoint, t: finalT }
+}
+
 // Find the parameter 't' for the closest point on a cubic bezier curve
 function findTForPointOnBezier(
   point: { x: number; y: number },
@@ -721,74 +784,102 @@ export default function RoadBuilder() {
         }
 
         const prevVertex = polygonSession.points[polygonSession.points.length - 1]
-        const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+        
+        // --- ADJACENT ROAD SNAPPING ---
+        const info1 = findClosestRoadInfo(prevVertex, roads)
+        const info2 = findClosestRoadInfo(worldCoords, roads)
+        const snapThreshold = snapDistance / zoom
 
-        // Check for road snapping between previous and current vertex
-        const prevSnappedPos = getSnappedPosition(prevVertex.x, prevVertex.y, [])
-
+        let didSnap = false
         if (
-          prevSnappedPos.snappedToRoadId &&
-          snappedPos.snappedToRoadId &&
-          prevSnappedPos.snappedToRoadId === snappedPos.snappedToRoadId
+          info1.road &&
+          info2.road &&
+          info1.road.id === info2.road.id &&
+          info1.distance < snapThreshold &&
+          info2.distance < snapThreshold &&
+          info1.road.type === RoadType.BEZIER &&
+          info1.road.controlPoints &&
+          info2.closestPoint
         ) {
-          const road = roads.find((r) => r.id === snappedPos.snappedToRoadId)
-          if (road && road.type === RoadType.BEZIER && road.controlPoints) {
-            // Both points are on the same road, let's snap the polygon segment
-            const t1 = findTForPointOnBezier({ x: prevVertex.x, y: prevVertex.y }, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
-            const t2 = findTForPointOnBezier({ x: snappedPos.x, y: snappedPos.y }, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+          const road = info1.road
+          const t1 = info1.t
+          const t2 = info2.t
 
+          if (Math.abs(t1 - t2) > 0.01) {
+            const vecToClick = { x: worldCoords.x - info2.closestPoint.x, y: worldCoords.y - info2.closestPoint.y }
+            const { tangent: tangentAtClick } = getBezierPointAndTangent(t2, road.start, road.controlPoints![0], road.controlPoints![1], road.end)
+            const crossZ = tangentAtClick.x * vecToClick.y - tangentAtClick.y * vecToClick.x
+            const side = Math.sign(crossZ) || 1
+
+            const offsetDistance = info2.distance
             const tStart = Math.min(t1, t2)
             const tEnd = Math.max(t1, t2)
 
-            // Split the bezier to get the segment
-            const { right: right1 } = splitCubicBezier(road.start, road.controlPoints[0], road.controlPoints[1], road.end, tStart)
-            const tPrime = (tEnd - tStart) / (1 - tStart)
+            const { right: right1 } = splitCubicBezier(road.start, road.controlPoints![0], road.controlPoints![1], road.end, tStart)
+            const tPrime = tEnd > tStart && 1 - tStart > 1e-6 ? (tEnd - tStart) / (1 - tStart) : 0
             const { left: segment } = splitCubicBezier(right1[0], right1[1], right1[2], right1[3], tPrime)
-            
-            // segment is [p0, c1, c2, p3]
-            const cp2_for_prev = t1 < t2 ? segment[1] : segment[2]
-            const cp1_for_new = t1 < t2 ? segment[2] : segment[1]
 
-            // Update the previous vertex's outgoing control point
+            const [roadP1, roadC1, roadC2, roadP2] = segment
+
+            const { tangent: tangent1 } = getBezierPointAndTangent(0, roadP1, roadC1, roadC2, roadP2)
+            const len1 = Math.sqrt(tangent1.x ** 2 + tangent1.y ** 2) || 1
+            const normal1 = { x: -tangent1.y / len1, y: tangent1.x / len1 }
+
+            const { tangent: tangent2 } = getBezierPointAndTangent(1, roadP1, roadC1, roadC2, roadP2)
+            const len2 = Math.sqrt(tangent2.x ** 2 + tangent2.y ** 2) || 1
+            const normal2 = { x: -tangent2.y / len2, y: tangent2.x / len2 }
+
+            const polyP1 = { x: roadP1.x + side * offsetDistance * normal1.x, y: roadP1.y + side * offsetDistance * normal1.y }
+            const polyP2 = { x: roadP2.x + side * offsetDistance * normal2.x, y: roadP2.y + side * offsetDistance * normal2.y }
+            const polyC1 = { x: polyP1.x + (roadC1.x - roadP1.x), y: polyP1.y + (roadC1.y - roadP1.y) }
+            const polyC2 = { x: polyP2.x + (roadC2.x - roadP2.x), y: polyP2.y + (roadC2.y - roadP2.y) }
+            
+            const finalPolyP1 = t1 < t2 ? polyP1 : polyP2
+            const finalPolyP2 = t1 < t2 ? polyP2 : polyP1
+            const finalPolyC1 = t1 < t2 ? polyC1 : polyC2
+            const finalPolyC2 = t1 < t2 ? polyC2 : polyC1
+
             setPolygonSession(prev => {
-              const updatedPoints = [...prev.points]
-              const lastPoint = updatedPoints[updatedPoints.length - 1]
-              lastPoint.cp2 = cp2_for_prev
-              return { ...prev, points: updatedPoints }
+              const newPoints = [...prev.points]
+              const lastIndex = newPoints.length - 1
+              newPoints[lastIndex] = {
+                ...newPoints[lastIndex],
+                x: finalPolyP1.x,
+                y: finalPolyP1.y,
+                cp2: finalPolyC1,
+              }
+              const newVertex: PolygonVertex = {
+                id: `pvertex-${Date.now()}`,
+                x: finalPolyP2.x,
+                y: finalPolyP2.y,
+                cp1: finalPolyC2,
+                cp2: { x: finalPolyP2.x, y: finalPolyP2.y },
+                isSnapped: true,
+              }
+              return { ...prev, points: [...newPoints, newVertex] }
             })
 
-            const newVertex: PolygonVertex = {
-              id: `pvertex-${Date.now()}`,
-              x: snappedPos.x,
-              y: snappedPos.y,
-              cp1: cp1_for_new,
-              cp2: { x: snappedPos.x, y: snappedPos.y }, // Straight handle for next segment initially
-              isSnapped: true, // Mark this vertex as having a snapped incoming segment
-            }
-
-            setPolygonSession(prev => ({
-              ...prev,
-              points: [...prev.points, newVertex],
-            }))
             setIsDraggingPolygonHandle(true)
-            return // Skip default vertex creation
+            didSnap = true
           }
         }
+        
+        if (!didSnap) {
+          // Add new vertex (default behavior)
+          const newVertex: PolygonVertex = {
+            id: `pvertex-${Date.now()}`,
+            x: worldCoords.x,
+            y: worldCoords.y,
+            cp1: { ...worldCoords },
+            cp2: { ...worldCoords },
+          }
 
-        // Add new vertex
-        const newVertex: PolygonVertex = {
-          id: `pvertex-${Date.now()}`,
-          x: worldCoords.x,
-          y: worldCoords.y,
-          cp1: { ...worldCoords },
-          cp2: { ...worldCoords },
+          setPolygonSession(prev => ({
+            ...prev,
+            points: [...prev.points, newVertex],
+          }))
+          setIsDraggingPolygonHandle(true) // Drag handles for the new point
         }
-
-        setPolygonSession(prev => ({
-          ...prev,
-          points: [...prev.points, newVertex],
-        }))
-        setIsDraggingPolygonHandle(true) // Drag handles for the new point
       }
       return
     }
