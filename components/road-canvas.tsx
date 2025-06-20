@@ -4,7 +4,7 @@ import { useRef, useEffect, type MouseEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ZoomIn, ZoomOut } from "lucide-react"
-import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage } from "@/lib/road-types"
+import { type Road, type Node, type BuildSession, RoadType, type NodePoint, type Polygon, type PolygonSession, type BackgroundImage, type PolygonVertex } from "@/lib/road-types"
 
 interface RoadCanvasProps {
   nodes: Node[]
@@ -153,6 +153,9 @@ export default function RoadCanvas({
   const getPolygonNamePosition = (polygon: Polygon) => {
     let centroidX = 0
     let centroidY = 0
+    if (polygon.points.length === 0) return { x: 0, y: 0 }
+    // For simplicity, we still average the vertex positions for the label.
+    // A true centroid of a bezier polygon is much more complex to calculate.
     for (const point of polygon.points) {
       centroidX += point.x
       centroidY += point.y
@@ -355,7 +358,7 @@ export default function RoadCanvas({
   }
 
   const drawPolygon = (ctx: CanvasRenderingContext2D, polygon: Polygon, isSelected: boolean) => {
-    if (polygon.points.length < 3) return
+    if (polygon.points.length < 2) return
 
     // Set fill style with opacity
     const fillColor = polygon.fillColor
@@ -373,28 +376,25 @@ export default function RoadCanvas({
     ctx.strokeStyle = isSelected ? "#3b82f6" : strokeColor
     ctx.lineWidth = isSelected ? 3 / zoom : 2 / zoom
 
-    // Draw polygon
+    // Draw polygon using bezier curves
     ctx.beginPath()
     ctx.moveTo(polygon.points[0].x, polygon.points[0].y)
-    for (let i = 1; i < polygon.points.length; i++) {
-      ctx.lineTo(polygon.points[i].x, polygon.points[i].y)
+    for (let i = 0; i < polygon.points.length; i++) {
+      const p0 = polygon.points[i];
+      const p1 = polygon.points[(i + 1) % polygon.points.length];
+      const cp1 = p0.cp2; // Control point leaving p0
+      const cp2 = p1.cp1; // Control point entering p1
+      ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, p1.x, p1.y);
     }
     ctx.closePath()
     ctx.fill()
     ctx.stroke()
 
-    // Draw polygon name if it has one - always show polygon names regardless of showRoadNames setting
-    // Note: We'll handle inline editing separately, so we only draw the name when not editing
+    // Draw polygon name if it has one
     if (polygon.name && polygon.name.trim() !== "" && editingPolygonName !== polygon.id) {
-      // Calculate centroid for text placement
-      let centroidX = 0
-      let centroidY = 0
-      for (const point of polygon.points) {
-        centroidX += point.x
-        centroidY += point.y
-      }
-      centroidX /= polygon.points.length
-      centroidY /= polygon.points.length
+      const pos = getPolygonNamePosition(polygon)
+      const screenX = pos.x * zoom + panOffset.x
+      const screenY = pos.y * zoom + panOffset.y
 
       const fontSize = Math.max(16 / zoom, 12)
       ctx.font = `bold ${fontSize}px Arial`
@@ -404,36 +404,55 @@ export default function RoadCanvas({
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
       
+      ctx.save()
+      ctx.translate(pos.x, pos.y)
       // Draw text with white outline for better visibility
-      ctx.strokeText(polygon.name, centroidX, centroidY)
-      ctx.fillText(polygon.name, centroidX, centroidY)
+      ctx.strokeText(polygon.name, 0, 0)
+      ctx.fillText(polygon.name, 0, 0)
+      ctx.restore()
     }
 
     // Draw selection highlight and edit handles
     if (isSelected) {
-      ctx.strokeStyle = "#3b82f6"
-      ctx.lineWidth = 1 / zoom
-      ctx.setLineDash([5 / zoom, 5 / zoom])
-      ctx.beginPath()
-      ctx.moveTo(polygon.points[0].x, polygon.points[0].y)
-      for (let i = 1; i < polygon.points.length; i++) {
-        ctx.lineTo(polygon.points[i].x, polygon.points[i].y)
-      }
-      ctx.closePath()
-      ctx.stroke()
-      ctx.setLineDash([])
-
       // Draw edit handles on polygon points when in select mode
       if (drawingMode === "select") {
-        ctx.fillStyle = "#3b82f6"
-        ctx.strokeStyle = "#ffffff"
-        ctx.lineWidth = 2 / zoom
+        ctx.strokeStyle = "#3b82f6"
+        ctx.lineWidth = 1 / zoom
         
+        // Draw control point handles for each vertex
         for (const point of polygon.points) {
+          // Draw vertex point
+          ctx.fillStyle = "#3b82f6"
+          ctx.strokeStyle = "#ffffff"
+          ctx.lineWidth = 2 / zoom
           ctx.beginPath()
           ctx.arc(point.x, point.y, 6 / zoom, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
+
+          // Draw control point handles
+          ctx.strokeStyle = "#fb923c" // Orange for handles
+          ctx.fillStyle = "#fb923c"
+          ctx.lineWidth = 1 / zoom
+          // Line to cp1
+          ctx.beginPath()
+          ctx.moveTo(point.x, point.y)
+          ctx.lineTo(point.cp1.x, point.cp1.y)
+          ctx.stroke()
+          // Circle on cp1
+          ctx.beginPath()
+          ctx.arc(point.cp1.x, point.cp1.y, 4 / zoom, 0, Math.PI * 2)
+          ctx.fill()
+
+          // Line to cp2
+          ctx.beginPath()
+          ctx.moveTo(point.x, point.y)
+          ctx.lineTo(point.cp2.x, point.cp2.y)
+          ctx.stroke()
+          // Circle on cp2
+          ctx.beginPath()
+          ctx.arc(point.cp2.x, point.cp2.y, 4 / zoom, 0, Math.PI * 2)
+          ctx.fill()
         }
       }
     }
@@ -441,6 +460,8 @@ export default function RoadCanvas({
 
   const drawPolygonSession = (ctx: CanvasRenderingContext2D, session: PolygonSession, currentMousePos: { x: number; y: number } | null) => {
     if (!session.isActive || session.points.length === 0) return
+
+    const points = session.points
 
     // Use the session's colors for preview
     const hexToRgba = (hex: string, alpha: number) => {
@@ -451,14 +472,21 @@ export default function RoadCanvas({
     }
 
     // Draw preview fill if we have enough points
-    if (session.points.length >= 3 && currentMousePos) {
+    if (points.length >= 2 && currentMousePos) {
       ctx.fillStyle = hexToRgba(session.fillColor, session.opacity * 0.5) // Reduced opacity for preview
       ctx.beginPath()
-      ctx.moveTo(session.points[0].x, session.points[0].y)
-      for (let i = 1; i < session.points.length; i++) {
-        ctx.lineTo(session.points[i].x, session.points[i].y)
+      ctx.moveTo(points[0].x, points[0].y)
+      // Draw existing bezier segments
+      for (let i = 0; i < points.length - 1; i++) {
+        ctx.bezierCurveTo(points[i].cp2.x, points[i].cp2.y, points[i + 1].cp1.x, points[i + 1].cp1.y, points[i + 1].x, points[i + 1].y);
       }
-      ctx.lineTo(currentMousePos.x, currentMousePos.y)
+      // Draw segment to mouse
+      const lastPoint = points[points.length - 1]
+      if (isActivelyDrawingCurve) {
+        ctx.bezierCurveTo(lastPoint.cp2.x, lastPoint.cp2.y, currentMousePos.x, currentMousePos.y, currentMousePos.x, currentMousePos.y)
+      } else {
+        ctx.lineTo(currentMousePos.x, currentMousePos.y)
+      }
       ctx.closePath()
       ctx.fill()
     }
@@ -467,50 +495,69 @@ export default function RoadCanvas({
     ctx.lineWidth = 2 / zoom
     ctx.setLineDash([5 / zoom, 5 / zoom])
 
-    // Draw lines between points
-    if (session.points.length > 1) {
+    // Draw curve segments between points
+    if (points.length > 1) {
       ctx.beginPath()
-      ctx.moveTo(session.points[0].x, session.points[0].y)
-      for (let i = 1; i < session.points.length; i++) {
-        ctx.lineTo(session.points[i].x, session.points[i].y)
+      ctx.moveTo(points[0].x, points[0].y)
+      for (let i = 0; i < points.length - 1; i++) {
+        ctx.bezierCurveTo(points[i].cp2.x, points[i].cp2.y, points[i+1].cp1.x, points[i+1].cp1.y, points[i+1].x, points[i+1].y)
       }
       ctx.stroke()
     }
 
-    // Draw line to mouse position
-    if (currentMousePos && session.points.length > 0) {
+    // Draw curve to mouse position
+    if (currentMousePos && points.length > 0) {
+      const lastPoint = points[points.length - 1]
       ctx.beginPath()
-      ctx.moveTo(session.points[session.points.length - 1].x, session.points[session.points.length - 1].y)
-      ctx.lineTo(currentMousePos.x, currentMousePos.y)
+      ctx.moveTo(lastPoint.x, lastPoint.y)
+      if (isActivelyDrawingCurve) {
+        ctx.bezierCurveTo(lastPoint.cp2.x, lastPoint.cp2.y, currentMousePos.x, currentMousePos.y, currentMousePos.x, currentMousePos.y);
+      } else {
+        ctx.lineTo(currentMousePos.x, currentMousePos.y);
+      }
       ctx.stroke()
 
       // Draw line back to first point if we have enough points
-      if (session.points.length >= 3) {
+      if (points.length >= 2) {
         ctx.strokeStyle = "#10b981"
         ctx.beginPath()
         ctx.moveTo(currentMousePos.x, currentMousePos.y)
-        ctx.lineTo(session.points[0].x, session.points[0].y)
+        ctx.lineTo(points[0].x, points[0].y)
         ctx.stroke()
       }
     }
 
     ctx.setLineDash([])
 
-    // Draw points
+    // Draw points and handles
     ctx.fillStyle = session.strokeColor
-    for (const point of session.points) {
+    for (const point of points) {
       ctx.beginPath()
-      ctx.arc(point.x, point.y, 4 / zoom, 0, Math.PI * 2)
+      ctx.arc(point.x, point.y, 5 / zoom, 0, Math.PI * 2)
       ctx.fill()
-    }
 
-    // Highlight first point if we can close the polygon
-    if (session.points.length >= 3) {
-      ctx.strokeStyle = "#10b981"
-      ctx.lineWidth = 2 / zoom
-      ctx.beginPath()
-      ctx.arc(session.points[0].x, session.points[0].y, 8 / zoom, 0, Math.PI * 2)
-      ctx.stroke()
+      // Draw handles for current session
+      ctx.strokeStyle = "#fb923c80"
+      ctx.fillStyle = "#fb923c"
+      ctx.lineWidth = 1 / zoom
+      
+      // to cp1
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(point.cp1.x, point.cp1.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(point.cp1.x, point.cp1.y, 3 / zoom, 0, Math.PI * 2);
+      ctx.fill();
+
+      // to cp2
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(point.cp2.x, point.cp2.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(point.cp2.x, point.cp2.y, 3 / zoom, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 

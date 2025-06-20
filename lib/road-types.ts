@@ -29,10 +29,20 @@ export interface Road {
   controlPoints?: [{ x: number; y: number }, { x: number; y: number }]
 }
 
+export interface PolygonVertex {
+  id: string;
+  x: number;
+  y: number;
+  // Control point for the curve *entering* this vertex (incoming)
+  cp1: { x: number; y: number };
+  // Control point for the curve *leaving* this vertex (outgoing)
+  cp2: { x: number; y: number };
+}
+
 export interface Polygon {
   id: string
   name?: string
-  points: { x: number; y: number }[]
+  points: PolygonVertex[]
   roadIds: string[] // Roads that this polygon follows
   fillColor: string
   strokeColor: string
@@ -50,7 +60,7 @@ export interface BuildSession {
 }
 
 export interface PolygonSession {
-  points: { x: number; y: number }[]
+  points: PolygonVertex[]
   roadIds: string[]
   isActive: boolean
   fillColor: string
