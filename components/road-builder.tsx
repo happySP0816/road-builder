@@ -100,6 +100,33 @@ function isPointInPolygon(point: { x: number; y: number }, polygon: PolygonVerte
   return inside
 }
 
+// Find the parameter 't' for the closest point on a cubic bezier curve
+function findTForPointOnBezier(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  cp1: { x: number; y: number },
+  cp2: { x: number; y: number },
+  end: { x: number; y: number }
+): number {
+  let bestT = 0
+  let minDistance = Infinity
+  const samples = 100 // More samples = more accuracy
+
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples
+    const mt = 1 - t
+    const x = mt * mt * mt * start.x + 3 * mt * mt * t * cp1.x + 3 * mt * t * t * cp2.x + t * t * t * end.x
+    const y = mt * mt * mt * start.y + 3 * mt * mt * t * cp1.y + 3 * mt * t * t * cp2.y + t * t * t * end.y
+    const distance = Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2)
+
+    if (distance < minDistance) {
+      minDistance = distance
+      bestT = t
+    }
+  }
+  return bestT
+}
+
 // Utility: Split cubic bezier at t, return two sets of control points
 function splitCubicBezier(
   p0: { x: number; y: number },
@@ -691,6 +718,61 @@ export default function RoadBuilder() {
         if (distanceToFirst < (10 / zoom) && polygonSession.points.length >= 2) {
           completePolygonSession()
           return
+        }
+
+        const prevVertex = polygonSession.points[polygonSession.points.length - 1]
+        const snappedPos = getSnappedPosition(worldCoords.x, worldCoords.y)
+
+        // Check for road snapping between previous and current vertex
+        const prevSnappedPos = getSnappedPosition(prevVertex.x, prevVertex.y, [])
+
+        if (
+          prevSnappedPos.snappedToRoadId &&
+          snappedPos.snappedToRoadId &&
+          prevSnappedPos.snappedToRoadId === snappedPos.snappedToRoadId
+        ) {
+          const road = roads.find((r) => r.id === snappedPos.snappedToRoadId)
+          if (road && road.type === RoadType.BEZIER && road.controlPoints) {
+            // Both points are on the same road, let's snap the polygon segment
+            const t1 = findTForPointOnBezier({ x: prevVertex.x, y: prevVertex.y }, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+            const t2 = findTForPointOnBezier({ x: snappedPos.x, y: snappedPos.y }, road.start, road.controlPoints[0], road.controlPoints[1], road.end)
+
+            const tStart = Math.min(t1, t2)
+            const tEnd = Math.max(t1, t2)
+
+            // Split the bezier to get the segment
+            const { right: right1 } = splitCubicBezier(road.start, road.controlPoints[0], road.controlPoints[1], road.end, tStart)
+            const tPrime = (tEnd - tStart) / (1 - tStart)
+            const { left: segment } = splitCubicBezier(right1[0], right1[1], right1[2], right1[3], tPrime)
+            
+            // segment is [p0, c1, c2, p3]
+            const cp2_for_prev = t1 < t2 ? segment[1] : segment[2]
+            const cp1_for_new = t1 < t2 ? segment[2] : segment[1]
+
+            // Update the previous vertex's outgoing control point
+            setPolygonSession(prev => {
+              const updatedPoints = [...prev.points]
+              const lastPoint = updatedPoints[updatedPoints.length - 1]
+              lastPoint.cp2 = cp2_for_prev
+              return { ...prev, points: updatedPoints }
+            })
+
+            const newVertex: PolygonVertex = {
+              id: `pvertex-${Date.now()}`,
+              x: snappedPos.x,
+              y: snappedPos.y,
+              cp1: cp1_for_new,
+              cp2: { x: snappedPos.x, y: snappedPos.y }, // Straight handle for next segment initially
+              isSnapped: true, // Mark this vertex as having a snapped incoming segment
+            }
+
+            setPolygonSession(prev => ({
+              ...prev,
+              points: [...prev.points, newVertex],
+            }))
+            setIsDraggingPolygonHandle(true)
+            return // Skip default vertex creation
+          }
         }
 
         // Add new vertex
@@ -1348,8 +1430,10 @@ export default function RoadBuilder() {
   
       // This creates the outgoing handle (cp2)
       const newCp2 = { x: currentPoint.x + dx, y: currentPoint.y + dy }
-      // The incoming handle (cp1) is a reflection to maintain a smooth curve
-      const newCp1 = { x: currentPoint.x - dx, y: currentPoint.y - dy }
+      // The incoming handle (cp1) is a reflection to maintain a smooth curve, unless it's snapped
+      const newCp1 = currentPoint.isSnapped
+        ? currentPoint.cp1 // Keep the snapped control point
+        : { x: currentPoint.x - dx, y: currentPoint.y - dy }
   
       setPolygonSession(prev => {
           const updatedPoints = [...prev.points]
@@ -1394,10 +1478,11 @@ export default function RoadBuilder() {
           if (index === prevSession.points.length - 1) {
             // Finalize the dragged point. We reset its cp2 so the next segment isn't automatically a curve unless dragged.
             // The important handle (cp1 for this point, and cp2 for the previous) are already set.
+            // If the incoming segment was snapped, cp1 should remain as is.
             return {
               ...point,
               cp2: { x: point.x, y: point.y },
-              cp1: prevSession.points.length === 1 ? { x: point.x, y: point.y } : point.cp1,
+              cp1: point.isSnapped ? point.cp1 : (prevSession.points.length === 1 ? { x: point.x, y: point.y } : point.cp1),
             }
           }
           return point

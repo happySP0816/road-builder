@@ -37,6 +37,8 @@ export interface PolygonVertex {
   cp1: { x: number; y: number };
   // Control point for the curve *leaving* this vertex (outgoing)
   cp2: { x: number; y: number };
+  // Flag to indicate the incoming segment is snapped to a road
+  isSnapped?: boolean;
 }
 
 export interface Polygon {
