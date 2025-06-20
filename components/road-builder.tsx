@@ -659,6 +659,12 @@ export default function RoadBuilder() {
     }
 
     if (drawingMode === "polygon") {
+      // Right-click to cancel polygon session
+      if (e.button === 2) {
+        cancelPolygonSession()
+        return
+      }
+
       if (!polygonSession.isActive) {
         // Start new polygon session - Pen Tool style
         const startVertex: PolygonVertex = {
@@ -1382,7 +1388,25 @@ export default function RoadBuilder() {
 
     if (wasDraggingPolygonHandle) {
       // The polygon vertex and its handles have been set on mouse move.
-      // Nothing more to do here for the Pen Tool logic.
+      // We just need to ensure the session is ready for the next point.
+      setPolygonSession((prevSession) => {
+        const updatedSessionPoints = prevSession.points.map((point, index) => {
+          if (index === prevSession.points.length - 1) {
+            // Finalize the dragged point. We reset its cp2 so the next segment isn't automatically a curve unless dragged.
+            // The important handle (cp1 for this point, and cp2 for the previous) are already set.
+            return {
+              ...point,
+              cp2: { x: point.x, y: point.y },
+              cp1: prevSession.points.length === 1 ? { x: point.x, y: point.y } : point.cp1,
+            }
+          }
+          return point
+        })
+        return {
+          ...prevSession,
+          points: updatedSessionPoints,
+        }
+      })
     }
 
     if (drawingMode === "nodes" && currentSession.isActive) {
