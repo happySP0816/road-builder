@@ -1154,7 +1154,7 @@ export default function RoadBuilder() {
 
     if (draggedPolygonControlPointInfo) {
       const { polygonId, pointIndex, handle } = draggedPolygonControlPointInfo
-      const maintainSymmetry = !e.shiftKey // Break symmetry if Shift is held
+      const maintainSymmetry = e.shiftKey // Hold Shift to maintain symmetry
 
       setPolygons((prevPolygons) =>
         prevPolygons.map((p) => {
